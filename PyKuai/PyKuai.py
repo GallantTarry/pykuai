@@ -15,7 +15,7 @@ from PySide6.QtGui import QFont, QIcon, QFontDatabase, QPixmap, QAction
 if getattr(sys, 'frozen', False):
     # 打包成 exe 后，资源会被自动解压到 sys._MEIPASS 这个临时秘密基地
     BASE_DIR = sys._MEIPASS
-    # 获取 exe 文件真正所在的物理目录（用于存放需要永久保存的数据）
+    # 获取 exe 文件真正所在的物理目录
     RUN_DIR = os.path.dirname(sys.executable)
 else:
     # 源码开发状态
@@ -29,8 +29,17 @@ TOOLS_DIR = os.path.join(BASE_DIR, "tools")
 ICON_PATH = os.path.join(IMGS_DIR, "script.ico")
 FONT_PATH = os.path.join(TOOLS_DIR, "zpix.ttf")
 
-# 收藏夹数据必须保存在外部 exe 同级目录，否则重启软件会丢失！
-FAV_PATH = os.path.join(RUN_DIR, ".pykuai_fav.json")
+# ==========================================
+# 修复 1: 收藏夹数据存放到用户 C盘 的文档(Documents)文件夹中
+# ==========================================
+DOCS_DIR = os.path.join(os.path.expanduser("~"), "Documents")
+if not os.path.exists(DOCS_DIR):
+    try:
+        os.makedirs(DOCS_DIR, exist_ok=True)
+    except Exception:
+        pass
+FAV_PATH = os.path.join(DOCS_DIR, ".pykuai_fav.json")
+
 
 # ==========================================
 # 抽离说明文档：支持子目录绝对路径读取
@@ -117,26 +126,20 @@ class GeekBootScreen(QWidget):
         layout.addWidget(self.bg_frame)
 
     def start_typing(self):
-        """开启高频定时器，逐字输入"""
         self.type_timer = QTimer(self)
         self.type_timer.timeout.connect(self.type_next_char)
-        # 每120毫秒敲击一个字符
         self.type_timer.start(120)
 
     def type_next_char(self):
-        """执行具体的字符拼接逻辑"""
         if self.type_index < len(self.target_text):
             current_text = self.cmd_input.text()
             self.cmd_input.setText(current_text + self.target_text[self.type_index])
             self.type_index += 1
         else:
-            # 字符输入完毕，停止打字定时器
             self.type_timer.stop()
-            # 严格等待 2 秒（2000毫秒）后，触发权限校验跳入主界面
             QTimer.singleShot(2000, self.check_auth)
 
     def check_auth(self):
-        # 恢复 helloworld 作为触发口令
         if self.cmd_input.text().strip().lower() == "helloworld":
             self.lbl_sys.setText("Access Granted. Welcome, Master.\nLoading PyKuai modules...")
             self.cmd_input.setDisabled(True)
@@ -166,7 +169,6 @@ class TitleBar(QFrame):
         layout.setContentsMargins(15, 0, 15, 0)
         layout.setAlignment(Qt.AlignVCenter)
 
-        # 1. 左上角图标
         lbl_icon = QLabel()
         if os.path.exists(ICON_PATH):
             pixmap = QPixmap(ICON_PATH).scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -174,7 +176,6 @@ class TitleBar(QFrame):
         layout.addWidget(lbl_icon)
         layout.addSpacing(5)
 
-        # 2. 标题文字
         title = QLabel("PyKuai Workspace")
         title.setFont(QFont(QApplication.font().family(), 12, QFont.Bold))
         title.setStyleSheet("color: #00FF00;")
@@ -182,7 +183,6 @@ class TitleBar(QFrame):
 
         layout.addStretch()
 
-        # 3. 设置按钮 (≡)
         self.btn_menu = QPushButton("≡")
         self.btn_menu.setFixedSize(30, 30)
         self.btn_menu.setToolTip("系统设置菜单")
@@ -195,7 +195,6 @@ class TitleBar(QFrame):
 
         layout.addSpacing(5)
 
-        # 4. 关闭/最小化按钮 (✕)
         self.btn_close = QPushButton("✕")
         self.btn_close.setFixedSize(30, 30)
         self.btn_close.setToolTip("关闭窗口")
@@ -236,6 +235,9 @@ class TitleBar(QFrame):
             self.parent.close_mode = 'tray'
             QMessageBox.information(self.parent, "设置", "X按钮功能已修改为：最小化到托盘。")
 
+    # ==========================================
+    # 修复 2: 开机自启逻辑修复 (正确写入 Python 或 EXE 执行路径)
+    # ==========================================
     def toggle_startup(self):
         try:
             import winreg
@@ -248,8 +250,15 @@ class TitleBar(QFrame):
                 winreg.DeleteValue(key, app_name)
                 QMessageBox.information(self.parent, "开机自启设置", "已成功【取消】开机自启。")
             except FileNotFoundError:
-                exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(sys.argv[0])
-                winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, f'"{exe_path}"')
+                if getattr(sys, 'frozen', False):
+                    # 如果是打包成的 exe，直接执行 exe 本身
+                    cmd = f'"{sys.executable}"'
+                else:
+                    # 如果是源码运行，则需要用 python.exe 解释器执行当前脚本
+                    script_path = os.path.abspath(sys.argv[0])
+                    cmd = f'"{sys.executable}" "{script_path}"'
+
+                winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, cmd)
                 QMessageBox.information(self.parent, "开机自启设置", "已成功【开启】开机自启！")
 
             winreg.CloseKey(key)
@@ -268,7 +277,7 @@ class TitleBar(QFrame):
 
 
 # ==========================================
-# 第三部分：全黑雾一体化主界面 (完全固定尺寸，取消误触缩放)
+# 第三部分：全黑雾一体化主界面
 # ==========================================
 class PyKuaiMain(QMainWindow):
     def __init__(self):
@@ -364,7 +373,6 @@ class PyKuaiMain(QMainWindow):
         content_layout = QHBoxLayout()
         content_layout.setContentsMargins(15, 15, 15, 15)
 
-        # -------- 左侧树状导航栏 --------
         left_frame = QFrame()
         left_layout = QVBoxLayout(left_frame)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -402,14 +410,16 @@ class PyKuaiMain(QMainWindow):
         left_frame.setFixedWidth(240)
         content_layout.addWidget(left_frame)
 
-        # -------- 右侧主显示区 --------
         self.stacked_widget = QStackedWidget()
         content_layout.addWidget(self.stacked_widget)
         main_layout.addLayout(content_layout)
 
     def load_scripts(self):
         if not os.path.exists(SCRIPTS_DIR):
-            os.makedirs(SCRIPTS_DIR)
+            try:
+                os.makedirs(SCRIPTS_DIR)
+            except Exception:
+                pass
 
         folder_mapping = {
             "General-purpose": "📁 泛用性",
@@ -424,42 +434,43 @@ class PyKuaiMain(QMainWindow):
         page_index = 0
         has_scripts = False
 
-        folders = [f for f in os.listdir(SCRIPTS_DIR) if os.path.isdir(os.path.join(SCRIPTS_DIR, f))]
+        if os.path.exists(SCRIPTS_DIR):
+            folders = [f for f in os.listdir(SCRIPTS_DIR) if os.path.isdir(os.path.join(SCRIPTS_DIR, f))]
 
-        for folder_name in sorted(folders):
-            folder_path = os.path.join(SCRIPTS_DIR, folder_name)
-            scripts = [f for f in os.listdir(folder_path) if f.endswith(('.py', '.pyw'))]
+            for folder_name in sorted(folders):
+                folder_path = os.path.join(SCRIPTS_DIR, folder_name)
+                scripts = [f for f in os.listdir(folder_path) if f.endswith(('.py', '.pyw'))]
 
-            if not scripts:
-                continue
+                if not scripts:
+                    continue
 
-            has_scripts = True
-            display_folder_name = folder_mapping.get(folder_name, f"📁 {folder_name}")
+                has_scripts = True
+                display_folder_name = folder_mapping.get(folder_name, f"📁 {folder_name}")
 
-            parent_item = QTreeWidgetItem(self.tree_widget, [display_folder_name])
-            parent_item.setFont(0, QFont(QApplication.font().family(), 11, QFont.Bold))
-            parent_item.setForeground(0, Qt.white)
+                parent_item = QTreeWidgetItem(self.tree_widget, [display_folder_name])
+                parent_item.setFont(0, QFont(QApplication.font().family(), 11, QFont.Bold))
+                parent_item.setForeground(0, Qt.white)
 
-            for script_name in sorted(scripts):
-                display_name = os.path.splitext(script_name)[0]
-                script_full_path = os.path.join(folder_path, script_name)
-                desc_text = ConfigManager.get_description(script_full_path)
+                for script_name in sorted(scripts):
+                    display_name = os.path.splitext(script_name)[0]
+                    script_full_path = os.path.join(folder_path, script_name)
+                    desc_text = ConfigManager.get_description(script_full_path)
 
-                self.all_scripts_info.append({
-                    "path": script_full_path,
-                    "name": display_name,
-                    "page_index": page_index
-                })
+                    self.all_scripts_info.append({
+                        "path": script_full_path,
+                        "name": display_name,
+                        "page_index": page_index
+                    })
 
-                child_item = QTreeWidgetItem(parent_item, [f"  📄 {display_name}"])
-                self.item_to_index[id(child_item)] = page_index
+                    child_item = QTreeWidgetItem(parent_item, [f"  📄 {display_name}"])
+                    self.item_to_index[id(child_item)] = page_index
 
-                page = self.create_script_page(script_full_path, display_name, desc_text)
-                self.stacked_widget.addWidget(page)
+                    page = self.create_script_page(script_full_path, display_name, desc_text)
+                    self.stacked_widget.addWidget(page)
 
-                page_index += 1
+                    page_index += 1
 
-            parent_item.setExpanded(True)
+                parent_item.setExpanded(True)
 
         self.refresh_favorites_tree()
 
@@ -512,7 +523,6 @@ class PyKuaiMain(QMainWindow):
         inner_stack = QStackedWidget()
         inner_stack.setStyleSheet("background: transparent;")
 
-        # --- 视图0：说明视图 ---
         info_page = QWidget()
         info_layout = QVBoxLayout(info_page)
         info_layout.setContentsMargins(20, 10, 20, 20)
@@ -626,7 +636,36 @@ class PyKuaiMain(QMainWindow):
 
 
 if __name__ == "__main__":
+    # ==========================================
+    # 辅助修复: 开机自启后，自动矫正工作目录，防止相对路径报错
+    # ==========================================
+    if getattr(sys, 'frozen', False):
+        os.chdir(os.path.dirname(sys.executable))
+    else:
+        os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
     app = QApplication(sys.argv)
+
+    # ==========================================
+    # 修复 3: 单例启动文件锁
+    # ==========================================
+    if os.name == 'nt':
+        import ctypes
+
+        mutex_name = "PyKuai_SingleInstance_Mutex_Lock"
+        mutex = ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
+        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            QMessageBox.warning(None, "运行提示", "PyKuai 已经在后台运行中，请检查系统托盘！")
+            sys.exit(0)
+    else:
+        import socket
+
+        try:
+            single_instance_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            single_instance_socket.bind(('127.0.0.1', 38452))
+        except socket.error:
+            QMessageBox.warning(None, "运行提示", "PyKuai 已经在后台运行中！")
+            sys.exit(0)
 
     app.setQuitOnLastWindowClosed(False)
 
@@ -637,7 +676,7 @@ if __name__ == "__main__":
         custom_font.setStyleStrategy(QFont.PreferAntialias)
         app.setFont(custom_font)
     else:
-        print(f"Warning: 未能成功加载 {FONT_PATH}，将使用系统默认字体。")
+        pass
 
     if os.path.exists(ICON_PATH):
         app.setWindowIcon(QIcon(ICON_PATH))
