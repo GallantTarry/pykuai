@@ -13,6 +13,9 @@ class PluginWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 30, 20, 20)
 
+        # 【核心调整1】：在顶部加入 30 像素的固定间距，让按钮往下留一点呼吸空间
+        layout.addSpacing(30)
+
         # 核心复制按钮，直接居中显示
         self.btn_copy = QPushButton("⚡ 一键复制 JS 提取脚本")
         self.btn_copy.setFixedSize(250, 45)
@@ -30,6 +33,9 @@ class PluginWidget(QWidget):
         """)
         self.btn_copy.clicked.connect(self.copy_js_to_clipboard)
         layout.addWidget(self.btn_copy, 0, Qt.AlignCenter)
+
+        # 【核心调整2】：在底部加入弹簧，死死把按钮往上顶！
+        layout.addStretch()
 
     def copy_js_to_clipboard(self):
         # 核心 JS 代码，原生字符串保持原样
@@ -131,7 +137,7 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
     window = PluginWidget()
-    window.setWindowTitle("专家获取粘贴板 - 独立调试模式")
+    window.setWindowTitle("专家获取粘贴板")
     window.setStyleSheet("background-color: rgba(20, 20, 20, 245);")
     window.resize(300, 150)
     window.show()

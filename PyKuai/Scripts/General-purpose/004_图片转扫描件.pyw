@@ -27,6 +27,10 @@ class PluginWidget(QWidget):
         layout.setContentsMargins(20, 30, 20, 20)
         layout.setSpacing(15)
 
+        # 【核心微调】：在最顶部强行加入 60 像素的空白间距，把整个界面往下压
+        # 如果你觉得还不够往下，就把 60 改成 80 或 100
+        layout.addSpacing(60)
+
         self.lbl_status = QLabel("尚未选择图片 (支持多选)")
         self.lbl_status.setAlignment(Qt.AlignCenter)
         self.lbl_status.setStyleSheet("color: #AAAAAA; font-size: 14px; font-weight: bold;")
@@ -46,6 +50,9 @@ class PluginWidget(QWidget):
         self.btn_convert.clicked.connect(self.process_and_convert)
         self.btn_convert.setEnabled(False)
         layout.addWidget(self.btn_convert, 0, Qt.AlignCenter)
+
+        # 底部弹簧，将上方组件顶在固定位置
+        layout.addStretch()
 
     def _btn_style(self):
         return """

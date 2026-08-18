@@ -1,3 +1,11 @@
+import pandas
+import cv2
+import numpy
+import img2pdf
+import keyboard
+import rarfile
+from PIL import Image
+import openpyxl  # <--- 必须加上它！防止读取 Excel 崩溃
 import sys
 import os
 import json
