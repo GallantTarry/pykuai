@@ -1,3 +1,10 @@
+pyinstaller -F -w -i "imgs/script.ico" --add-data "Scripts;Scripts" --add-data "tools;tools" --add-data "imgs;imgs" PyKuai.py
+
+
+一键打包，但是要把新增加的依赖放入到PyKuai.py
+
+
+
 属于现代桌面软件中非常经典的“宿主-插件”（Host-Plugin）架构模式。
 
   
