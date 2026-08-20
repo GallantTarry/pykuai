@@ -8,6 +8,7 @@ from PIL import Image
 import openpyxl  # <--- 必须加上它！防止读取 Excel 崩溃
 import sys
 import os
+import pypdf
 import json
 import importlib.util
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
