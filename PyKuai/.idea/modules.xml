@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/pyside6-pykuai-app.iml" filepath="$PROJECT_DIR$/.idea/pyside6-pykuai-app.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/PyKuai.iml" filepath="$PROJECT_DIR$/.idea/PyKuai.iml" />
     </modules>
   </component>
 </project>
