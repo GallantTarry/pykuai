@@ -30,8 +30,9 @@ class MergeWorker(QThread):
         ]
 
     def run(self):
+        current_file = "未知文件"  # 新增：用于追踪当前正在处理的文件名
         try:
-            # 过滤掉隐藏文件和非 Excel 文件[cite: 27]
+            # 过滤掉隐藏文件和非 Excel 文件[cite: 2]
             files = [f for f in os.listdir(self.input_dir) if f.endswith(('.xlsx', '.xls')) and not f.startswith('~')]
 
             if not files:
@@ -40,29 +41,58 @@ class MergeWorker(QThread):
 
             df_list = []
             for idx, file in enumerate(files):
+                current_file = file  # 每次循环更新当前文件名，一旦后续崩溃就是它的锅
                 file_path = os.path.join(self.input_dir, file)
                 self.log_signal.emit(f"[*] 正在解析 ({idx + 1}/{len(files)}): {file}")
 
-                # 核心规则：跳过前 4 行，将原表的第 5 行（索引4）作为数据列名，且只读取前 20 列
-                df = pd.read_excel(file_path, header=4, usecols=range(20))
+                # 1. 初始读取：【重点修改】不再预设 usecols，防止列数不足直接崩溃引发 out-of-bounds
+                df_raw = pd.read_excel(file_path, header=None)
 
-                # 强制覆盖表头，防止不同文件表头存在细微错别字导致错位
+                # 将列数安全地统一调整为 20 列（多余的列丢弃，不足20列的自动用空值补齐）
+                df_raw = df_raw.reindex(columns=range(20))
+
+                header_index = -1
+
+                # 2. 动态扫描：在前 30 行中寻找包含特定特征词的行作为真实表头
+                search_limit = min(30, len(df_raw))
+                for i in range(search_limit):
+                    # 将这一行的所有非空值拼接成字符串，方便判断
+                    row_values = [str(val).strip() for val in df_raw.iloc[i].values if pd.notna(val)]
+                    row_str = "".join(row_values)
+
+                    # 只要这一行同时包含这几个核心词，我们就认定它是表头所在行
+                    if "物料编码" in row_str and "标包号" in row_str and "规格及描述" in row_str:
+                        header_index = i
+                        break
+
+                # 3. 容错处理：如果没有检测到表头
+                if header_index == -1:
+                    self.log_signal.emit(f"[!] ❌ 报错跳过: {file} 未能在前 {search_limit} 行检测到标准表头！")
+                    continue
+
+                # 4. 数据截取：提取表头下方的数据，并应用标准列名
+                df = df_raw.iloc[header_index + 1:].copy()
                 df.columns = self.target_columns
 
-                # 剔除全空的无效行，防止空数据污染[cite: 27]
+                # 5. 剔除全空的无效行，防止空数据污染
                 df.dropna(how='all', inplace=True)
-                df_list.append(df)
+
+                # 如果该文件只有表头没有数据，也可以选择跳过
+                if not df.empty:
+                    df_list.append(df)
+                else:
+                    self.log_signal.emit(f"[-] ⚠️ 警告: {file} 中只有表头，未包含实际明细数据。")
 
             self.log_signal.emit("\n>>> 数据读取完毕，正在执行底层垂直拼接...")
 
-            # 拼接所有表格的数据部分[cite: 27]
+            # 拼接所有表格的数据部分[cite: 2]
             final_df = pd.concat(df_list, ignore_index=True)
 
             self.log_signal.emit(">>> 拼接完成，正在重绘全局格式与边框...")
 
-            # 使用 openpyxl 引擎写入，以便后续操作单元格格式[cite: 27]
+            # 使用 openpyxl 引擎写入，以便后续操作单元格格式[cite: 2]
             with pd.ExcelWriter(self.output_file, engine='openpyxl') as writer:
-                # 纯净版：不再需要预留空行，直接从第1行（索引0）开始写入数据[cite: 27]
+                # 纯净版：不再需要预留空行，直接从第1行（索引0）开始写入数据[cite: 2]
                 final_df.to_excel(writer, sheet_name='Sheet1', index=False, startrow=0)
 
                 worksheet = writer.sheets['Sheet1']
@@ -75,13 +105,13 @@ class MergeWorker(QThread):
                     cell.font = Font(bold=True)
                     cell.alignment = Alignment(horizontal='center', vertical='center')
 
-                # ================= 添加全局边框样式 =================[cite: 27]
+                # ================= 添加全局边框样式 =================[cite: 2]
                 thin_border = Border(left=Side(style='thin'),
                                      right=Side(style='thin'),
                                      top=Side(style='thin'),
                                      bottom=Side(style='thin'))
 
-                # 遍历所有使用到的单元格，统一画上细边框[cite: 27]
+                # 遍历所有使用到的单元格，统一画上细边框[cite: 2]
                 for row in worksheet.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=max_col):
                     for cell in row:
                         cell.border = thin_border
@@ -90,8 +120,8 @@ class MergeWorker(QThread):
                                       f"✅ 处理完毕！\n\n共合并 {len(files)} 份文件，生成 {len(final_df)} 行有效明细数据。")
 
         except Exception as e:
-            self.finished_signal.emit(False, f"合并过程中发生异常，请检查文件是否被打开占用！\n\n报错详情: {str(e)}")
-
+            # 【重点修改】报错弹窗中直接带上 current_file，精准定位罪魁祸首
+            self.finished_signal.emit(False, f"处理表【{current_file}】时发生异常！请检查文件格式。\n\n报错详情: {str(e)}")
 
 # =================================================================
 # 核心规范：必须名为 PluginWidget 并继承自 QWidget[cite: 27]
@@ -178,7 +208,7 @@ class PluginWidget(QWidget):
             }
         """)
         self.log_area.append(
-            ">_ 纯净版拼接引擎已就绪...\n>_ 执行规则：\n  1. 彻底切除前 4 行无关结构\n  2. 提取第 5 行作为规范表头 (共 20 列)\n  3. 提取第 6 行及以下所有数据垂直堆叠\n  4. 生成清爽数据源并重绘全局表格边框。")
+            ">_ 纯净版拼接引擎已就绪...\n>_ 执行规则：\n  1. 动态查询“物料编码”、“标包号”和“规格及描述的行。\n  2. 锁定表头。\n  3. 提取下方所有数据垂直堆叠。\n  4. 如果前30行没查到表头会报错。")
         layout.addWidget(self.log_area)
 
         # 5. 核心执行按钮[cite: 27]
