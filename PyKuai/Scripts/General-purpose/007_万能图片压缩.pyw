@@ -4,7 +4,7 @@ from PIL import Image
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QLineEdit, QPushButton, QFileDialog, QMessageBox, QApplication, QTextEdit, QSlider)
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QFont, QFontDatabase, QTextCursor
 
 
 # =================================================================
@@ -102,9 +102,9 @@ class PluginWidget(QWidget):
         layout.setContentsMargins(20, 30, 20, 20)
         layout.setSpacing(15)
 
-        # 1. 标题
+        # 1. 标题 (统一为极客橙 #FF9800)
         title_lbl = QLabel("万能图片压缩引擎")
-        title_lbl.setStyleSheet("color: #00FFFF; font-size: 22px; font-weight: bold; font-family: 'Microsoft YaHei';")
+        title_lbl.setStyleSheet("color: #FF9800; font-size: 22px; font-weight: bold;")
         title_lbl.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_lbl)
 
@@ -124,8 +124,8 @@ class PluginWidget(QWidget):
                 border: 1px solid #555;
                 border-radius: 5px;
                 padding: 8px;
-                font-family: Consolas;
             }
+            QLineEdit:focus { border: 1px solid #00FF00; }
         """)
 
         self.btn_input = QPushButton("浏览...")
@@ -191,17 +191,16 @@ class PluginWidget(QWidget):
         controls_layout.addLayout(quality_layout)
         layout.addLayout(controls_layout)
 
-        # 5. 透明实时日志区
+        # 5. 透明实时日志区 (统一终端绿)
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
         self.log_area.setStyleSheet("""
             QTextEdit {
-                background-color: rgba(0, 0, 0, 100);
-                color: #A9B7C6;
-                border: 1px solid #444;
+                background-color: rgba(10, 10, 10, 200);
+                color: #00FF00;
+                border: 1px solid #333;
                 border-radius: 5px;
                 padding: 10px;
-                font-family: Consolas, 'Microsoft YaHei';
                 font-size: 13px;
             }
         """)
@@ -214,20 +213,21 @@ class PluginWidget(QWidget):
             "  4. 自动处理透明图层转 JPG 时的通道冲突问题。")
         layout.addWidget(self.log_area)
 
-        # 6. 核心执行按钮
+        # 6. 核心执行按钮 (统一镂空霓虹绿发光)
         self.btn_start = QPushButton("🚀 开始极限压缩")
         self.btn_start.setFixedSize(260, 45)
         self.btn_start.setCursor(Qt.PointingHandCursor)
         self.btn_start.setStyleSheet("""
             QPushButton { 
-                background-color: #4CAF50; 
-                color: #111; 
+                background-color: transparent; 
+                color: #00FF00; 
+                border: 1px solid #00FF00;
                 font-weight: bold; 
                 font-size: 15px; 
                 border-radius: 6px; 
             }
-            QPushButton:hover { background-color: #45a049; }
-            QPushButton:disabled { background-color: #2e6030; color: #888; }
+            QPushButton:hover { background-color: rgba(0, 255, 0, 30); box-shadow: 0 0 10px #00FF00; }
+            QPushButton:disabled { color: #555; border: 1px solid #555; background-color: transparent; }
         """)
         self.btn_start.clicked.connect(self.start_compress)
 
@@ -255,8 +255,8 @@ class PluginWidget(QWidget):
                 border-radius: 3px;
             }
             QSlider::handle:horizontal {
-                background: #00FFFF;
-                border: 1px solid #333;
+                background: #00FF00;
+                border: 1px solid #222;
                 width: 14px;
                 margin: -4px 0;
                 border-radius: 7px;
@@ -271,6 +271,7 @@ class PluginWidget(QWidget):
         if file_path:
             self.entry_input.setText(file_path)
             self.log_area.append(f"\n>_ 锁定源图片: {file_path}")
+            self.log_area.moveCursor(QTextCursor.End)
 
             if not self.entry_output.text():
                 # 自动生成默认的输出路径
@@ -279,6 +280,7 @@ class PluginWidget(QWidget):
                 default_out = os.path.join(file_dir, f"{file_name}_min{file_ext}")
                 self.entry_output.setText(default_out)
                 self.log_area.append(f">_ 自动配置默认输出路径: {default_out}")
+                self.log_area.moveCursor(QTextCursor.End)
 
     def select_output_file(self):
         source_path = self.entry_input.text()
@@ -295,6 +297,7 @@ class PluginWidget(QWidget):
         if file_path:
             self.entry_output.setText(file_path)
             self.log_area.append(f">_ 锁定目标输出路径: {file_path}")
+            self.log_area.moveCursor(QTextCursor.End)
 
     def start_compress(self):
         input_file = self.entry_input.text().strip()
@@ -318,6 +321,7 @@ class PluginWidget(QWidget):
 
         self.log_area.append("\n==============================================")
         self.log_area.append(">_ 引擎启动，开始执行降维序列...")
+        self.log_area.moveCursor(QTextCursor.End)
 
         scale_val = self.slider_scale.value()
         quality_val = self.slider_quality.value()
@@ -329,8 +333,7 @@ class PluginWidget(QWidget):
 
     def update_log(self, msg):
         self.log_area.append(msg)
-        scrollbar = self.log_area.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
+        self.log_area.moveCursor(QTextCursor.End)
 
     def compress_finished(self, success, msg):
         self.btn_start.setText("🚀 开始极限压缩")
@@ -342,6 +345,7 @@ class PluginWidget(QWidget):
 
         self.log_area.append(msg)
         self.log_area.append("==============================================\n")
+        self.log_area.moveCursor(QTextCursor.End)
 
         if success:
             QMessageBox.information(self, "压缩成功", msg)
@@ -358,8 +362,17 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    icon_path = os.path.abspath(os.path.join(current_dir, "../..", "imgs", "script.ico"))
 
+    # 动态加载 ../../tools/zpix.ttf，保证单独双击运行测试时也是像素风
+    tools_dir = os.path.abspath(os.path.join(current_dir, "../..", "tools"))
+    font_path = os.path.join(tools_dir, "zpix.ttf")
+    if os.path.exists(font_path):
+        font_id = QFontDatabase.addApplicationFont(font_path)
+        if font_id != -1:
+            font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
+            app.setFont(QFont(font_family, 10))
+
+    icon_path = os.path.abspath(os.path.join(current_dir, "../..", "imgs", "script.ico"))
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
 

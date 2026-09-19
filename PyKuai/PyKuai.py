@@ -14,7 +14,7 @@ import importlib.util
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QPushButton, QLabel, QStackedWidget, QLineEdit,
                                QFrame, QMessageBox, QTreeWidget, QTreeWidgetItem,
-                               QSystemTrayIcon, QMenu)
+                               QSystemTrayIcon, QMenu, QSizeGrip)
 from PySide6.QtCore import Qt, QTimer, QPoint
 from PySide6.QtGui import QFont, QIcon, QFontDatabase, QPixmap, QAction
 
@@ -39,7 +39,7 @@ ICON_PATH = os.path.join(IMGS_DIR, "script.ico")
 FONT_PATH = os.path.join(TOOLS_DIR, "zpix.ttf")
 
 # ==========================================
-# 修复 1: 收藏夹数据存放到用户 C盘 的文档(Documents)文件夹中
+# 收藏夹数据存放到用户 C盘 的文档(Documents)文件夹中
 # ==========================================
 DOCS_DIR = os.path.join(os.path.expanduser("~"), "Documents")
 if not os.path.exists(DOCS_DIR):
@@ -70,7 +70,7 @@ class ConfigManager:
 
 
 # ==========================================
-# 第一部分：极客黑雾透明验证启动页
+# 第一部分：极客黑雾透明验证启动页 (双色诗篇版)
 # ==========================================
 class GeekBootScreen(QWidget):
     def __init__(self, main_window):
@@ -96,7 +96,7 @@ class GeekBootScreen(QWidget):
         self.bg_frame = QFrame(self)
         self.bg_frame.setStyleSheet("""
             QFrame {
-                background-color: rgba(15, 15, 15, 220);
+                background-color: rgba(15, 15, 15, 235);
                 border-radius: 12px;
                 border: 1px solid #333;
             }
@@ -104,19 +104,20 @@ class GeekBootScreen(QWidget):
         bg_layout = QVBoxLayout(self.bg_frame)
         bg_layout.setContentsMargins(30, 40, 30, 40)
 
-        # 更新启动说明文本，包含作者、用户名和许可证信息
+        # 【核心定制】：双色文本 + 作者宣示 + 上帝诗篇
         self.lbl_sys = QLabel(
-            "PyKuai Terminal [Version 2.0.0]\n"
-            "Author: TuKuai | Username: GallantTarry\n"
-            "License: MIT License\n"
-            "Initializing secure connection...\n"
-            "Waiting for override code:"
+            "<span style='color: #00FF00;'>PyKuai Terminal [Version 1.2.4]</span><br>"
+            "<span style='color: #00FF00;'>Author: <b>TuKuai</b> | Username: <b>GallantTarry</b></span><br><br>"
+            "<span style='color: #FF9800;'><i>\"The Lord is my shepherd.\"</i></span><br><br>"
+            "<span style='color: #00FF00;'>Initializing secure connection...</span><br>"
+            "<span style='color: #00FF00;'>Waiting for override code:</span>"
         )
         self.lbl_sys.setFont(QFont(QApplication.font().family(), 11))
-        self.lbl_sys.setStyleSheet("color: #00FF00; background: transparent; border: none;")
+        # 移除全局 color 设置，让内部 HTML 颜色生效
+        self.lbl_sys.setStyleSheet("background: transparent; border: none;")
 
         input_layout = QHBoxLayout()
-        lbl_prompt = QLabel("root@pykuai:~# ")
+        lbl_prompt = QLabel("root@PyKuai:~# ")
         lbl_prompt.setFont(QFont(QApplication.font().family(), 12, QFont.Bold))
         lbl_prompt.setStyleSheet("color: #00FF00; background: transparent; border: none;")
 
@@ -129,7 +130,7 @@ class GeekBootScreen(QWidget):
         input_layout.addWidget(self.cmd_input)
 
         bg_layout.addWidget(self.lbl_sys)
-        bg_layout.addSpacing(20)
+        bg_layout.addSpacing(10)
         bg_layout.addLayout(input_layout)
         bg_layout.addStretch()
         layout.addWidget(self.bg_frame)
@@ -146,18 +147,16 @@ class GeekBootScreen(QWidget):
             self.type_index += 1
         else:
             self.type_timer.stop()
-            QTimer.singleShot(2000, self.check_auth)
+            QTimer.singleShot(1500, self.check_auth)
 
     def check_auth(self):
         if self.cmd_input.text().strip().lower() == "helloworld":
-            self.lbl_sys.setText("Access Granted. Welcome, Master.\nLoading PyKuai modules...")
+            self.lbl_sys.setText("<span style='color: #00FFFF;'>Access Granted. Welcome, Master.<br>Loading PyKuai modules...</span>")
             self.cmd_input.setDisabled(True)
-            self.lbl_sys.setStyleSheet("color: #00FFFF; background: transparent; border: none;")
             QTimer.singleShot(600, self.enter_main)
         else:
             self.cmd_input.clear()
-            self.lbl_sys.setText("Access Denied.\nInvalid override code:")
-            self.lbl_sys.setStyleSheet("color: #FF0000; background: transparent; border: none;")
+            self.lbl_sys.setText("<span style='color: #FF0000;'>Access Denied.<br>Invalid override code:</span>")
 
     def enter_main(self):
         self.close()
@@ -185,7 +184,7 @@ class TitleBar(QFrame):
         layout.addWidget(lbl_icon)
         layout.addSpacing(5)
 
-        title = QLabel("PyKuai Workspace")
+        title = QLabel("PyKuai")
         title.setFont(QFont(QApplication.font().family(), 12, QFont.Bold))
         title.setStyleSheet("color: #00FF00;")
         layout.addWidget(title)
@@ -244,9 +243,6 @@ class TitleBar(QFrame):
             self.parent.close_mode = 'tray'
             QMessageBox.information(self.parent, "设置", "X按钮功能已修改为：最小化到托盘。")
 
-    # ==========================================
-    # 修复 2: 开机自启逻辑修复 (正确写入 Python 或 EXE 执行路径)
-    # ==========================================
     def toggle_startup(self):
         try:
             import winreg
@@ -359,7 +355,9 @@ class PyKuaiMain(QMainWindow):
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
-        self.setFixedSize(820, 530)
+        # 第一个参数是宽度(如850)，第二个参数是高度(600)
+        self.resize(850, 600)
+        self.setMinimumSize(850, 600)
 
         self.main_widget = QFrame(self)
         self.setCentralWidget(self.main_widget)
@@ -387,7 +385,9 @@ class PyKuaiMain(QMainWindow):
         left_layout.setContentsMargins(0, 0, 0, 0)
 
         self.tree_widget = QTreeWidget()
+        self.tree_widget.setIndentation(12)
         self.tree_widget.setHeaderHidden(True)
+        self.tree_widget.setRootIsDecorated(False)
         self.tree_widget.setFont(QFont(QApplication.font().family(), 10))
         self.tree_widget.setStyleSheet("""
             QTreeWidget { 
@@ -422,6 +422,18 @@ class PyKuaiMain(QMainWindow):
         self.stacked_widget = QStackedWidget()
         content_layout.addWidget(self.stacked_widget)
         main_layout.addLayout(content_layout)
+
+        # 隐形调节手柄
+        grip_layout = QHBoxLayout()
+        grip_layout.setContentsMargins(0, 0, 5, 5)
+        grip_layout.addStretch()
+
+        self.size_grip = QSizeGrip(self.main_widget)
+        self.size_grip.setFixedSize(15, 15)
+        self.size_grip.setStyleSheet("background: transparent;")
+
+        grip_layout.addWidget(self.size_grip)
+        main_layout.addLayout(grip_layout)
 
     def load_scripts(self):
         if not os.path.exists(SCRIPTS_DIR):
@@ -471,7 +483,7 @@ class PyKuaiMain(QMainWindow):
                         "page_index": page_index
                     })
 
-                    child_item = QTreeWidgetItem(parent_item, [f"  📄 {display_name}"])
+                    child_item = QTreeWidgetItem(parent_item, [f"📄 {display_name}"])
                     self.item_to_index[id(child_item)] = page_index
 
                     page = self.create_script_page(script_full_path, display_name, desc_text)
@@ -492,7 +504,7 @@ class PyKuaiMain(QMainWindow):
 
         for script in self.all_scripts_info:
             if script["path"] in self.favorites:
-                fav_child = QTreeWidgetItem(self.fav_root, [f"  📄 {script['name']}"])
+                fav_child = QTreeWidgetItem(self.fav_root, [f"📄 {script['name']}"])
                 fav_child.setForeground(0, Qt.cyan)
                 self.item_to_index[id(fav_child)] = script["page_index"]
 
@@ -611,7 +623,18 @@ class PyKuaiMain(QMainWindow):
 
             if hasattr(module, 'PluginWidget'):
                 plugin_instance = module.PluginWidget()
-                plugin_instance.setStyleSheet("background-color: transparent;")
+
+                # 强制样式穿透，解决子脚本 UI 默认字体问题
+                current_font_family = QApplication.font().family()
+                plugin_instance.setStyleSheet(f"""
+                    QWidget {{ font-family: '{current_font_family}'; }}
+                    PluginWidget {{ background-color: transparent; }}
+                """)
+
+                global_font = QApplication.font()
+                plugin_instance.setFont(global_font)
+                for child_widget in plugin_instance.findChildren(QWidget):
+                    child_widget.setFont(global_font)
 
                 wrapper = QWidget()
                 wrap_layout = QVBoxLayout(wrapper)
@@ -645,9 +668,7 @@ class PyKuaiMain(QMainWindow):
 
 
 if __name__ == "__main__":
-    # ==========================================
     # 辅助修复: 开机自启后，自动矫正工作目录，防止相对路径报错
-    # ==========================================
     if getattr(sys, 'frozen', False):
         os.chdir(os.path.dirname(sys.executable))
     else:
@@ -655,9 +676,7 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
-    # ==========================================
-    # 修复 3: 单例启动文件锁
-    # ==========================================
+    # 单例启动文件锁
     if os.name == 'nt':
         import ctypes
 

@@ -1,41 +1,82 @@
 # -*- coding: utf-8 -*-
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QMessageBox, QApplication)
+import os
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QPushButton, QMessageBox, QApplication, QTextEdit)
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon, QFont, QFontDatabase, QTextCursor
 
 
+# =================================================================
+# 核心规范：必须名为 PluginWidget 并继承自 QWidget，适配 PyKuai
+# =================================================================
 class PluginWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.init_ui()
 
     def init_ui(self):
-        # 初始化主布局
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 30, 20, 20)
+        layout.setSpacing(15)
 
-        # 【核心调整1】：在顶部加入 30 像素的固定间距，让按钮往下留一点呼吸空间
-        layout.addSpacing(30)
+        # 1. 标题 (统一极客橙色)
+        title_lbl = QLabel("JS 动态节点嗅探与抓取引擎")
+        title_lbl.setStyleSheet("color: #FF9800; font-size: 22px; font-weight: bold;")
+        title_lbl.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title_lbl)
 
-        # 核心复制按钮，直接居中显示
-        self.btn_copy = QPushButton("⚡ 一键复制 JS 提取脚本")
-        self.btn_copy.setFixedSize(250, 45)
+        # 2. 功能说明
+        desc_lbl = QLabel("绕过前端加密 | 纯净原生 JS | 一键注入浏览器控制台")
+        desc_lbl.setStyleSheet("color: #AAAAAA; font-size: 13px;")
+        desc_lbl.setAlignment(Qt.AlignCenter)
+        layout.addWidget(desc_lbl)
+
+        layout.addSpacing(10)
+
+        # 3. 透明实时终端日志框 (统一终端绿代码流风格)
+        self.log_console = QTextEdit()
+        self.log_console.setReadOnly(True)
+        self.log_console.setStyleSheet("""
+            QTextEdit {
+                background-color: rgba(10, 10, 10, 200);
+                color: #00FF00;
+                border: 1px solid #333;
+                border-radius: 5px;
+                padding: 10px;
+                font-size: 13px;
+            }
+        """)
+        self.log_console.setText(
+            "等待提取指令...\n"
+            ">_ 适用场景：提取网页上的动态加密表格 (专家、供应商库等)。\n"
+            ">_ 战术规范：\n"
+            "  1. 点击下方按钮，将底层 JS 嗅探代码装载至系统剪贴板。\n"
+            "  2. 在目标网页按 [F12] 调出开发者工具 (Console)。\n"
+            "  3. 粘贴代码并回车，系统将自动击穿反爬限制并提取数据。\n"
+        )
+        layout.addWidget(self.log_console)
+
+        # 4. 核心执行按钮 (统一镂空霓虹绿特效)
+        self.btn_copy = QPushButton("🚀 一键复制嗅探脚本")
+        self.btn_copy.setFixedSize(260, 45)
         self.btn_copy.setCursor(Qt.PointingHandCursor)
         self.btn_copy.setStyleSheet("""
             QPushButton { 
                 background-color: transparent; 
-                color: #00FFFF; 
-                border: 1px solid #00FFFF;
+                color: #00FF00; 
+                border: 1px solid #00FF00;
                 font-weight: bold; 
                 font-size: 15px; 
                 border-radius: 6px; 
             }
-            QPushButton:hover { background-color: rgba(0, 255, 255, 30); }
+            QPushButton:hover { background-color: rgba(0, 255, 0, 30); box-shadow: 0 0 10px #00FF00; }
+            QPushButton:disabled { color: #555; border: 1px solid #555; background-color: transparent; }
         """)
         self.btn_copy.clicked.connect(self.copy_js_to_clipboard)
         layout.addWidget(self.btn_copy, 0, Qt.AlignCenter)
 
-        # 【核心调整2】：在底部加入弹簧，死死把按钮往上顶！
-        layout.addStretch()
+    def append_log(self, text):
+        self.log_console.append(text)
+        self.log_console.moveCursor(QTextCursor.End)
 
     def copy_js_to_clipboard(self):
         # 核心 JS 代码，原生字符串保持原样
@@ -125,20 +166,41 @@ class PluginWidget(QWidget):
         clipboard = QApplication.clipboard()
         clipboard.setText(js_code)
 
+        # 反馈打印到终端日志
+        self.append_log("\n>_ 物理复制指令已触发...")
+        self.append_log(f">_ 提取到 JS Payload 结构，总计 {len(js_code)} Bytes。")
+        self.append_log(">_ ✅ 核心脚本已成功挂载至系统剪贴板！请切换至浏览器实施注入。")
+
         # 弹出成功提示
-        QMessageBox.information(self, "执行完毕", "JS 代码已成功复制到系统剪贴板！\n\n请直接前往浏览器控制台粘贴运行。")
+        QMessageBox.information(self, "挂载成功", "JS 代码已成功复制到系统剪贴板！\n\n请直接前往浏览器控制台粘贴运行。")
 
 
 # =================================================================
-# 独立调试机制
+# 独立调试机制：主程序挂载时会被无视
 # =================================================================
 if __name__ == "__main__":
     import sys
 
     app = QApplication(sys.argv)
+
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # 动态加载 ../../tools/zpix.ttf，保证独立运行测试时也是像素风
+    tools_dir = os.path.abspath(os.path.join(current_dir, "../..", "tools"))
+    font_path = os.path.join(tools_dir, "zpix.ttf")
+    if os.path.exists(font_path):
+        font_id = QFontDatabase.addApplicationFont(font_path)
+        if font_id != -1:
+            font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
+            app.setFont(QFont(font_family, 10))
+
+    icon_path = os.path.abspath(os.path.join(current_dir, "../..", "imgs", "script.ico"))
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
+
     window = PluginWidget()
-    window.setWindowTitle("专家获取粘贴板")
+    window.setWindowTitle("JS嗅探提取引擎 - 独立沙盒模式")
     window.setStyleSheet("background-color: rgba(20, 20, 20, 245);")
-    window.resize(300, 150)
+    window.resize(600, 400)
     window.show()
     sys.exit(app.exec())
