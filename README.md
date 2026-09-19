@@ -1,6 +1,6 @@
 pyinstaller -F -w -i "imgs/script.ico" --add-data "Scripts;Scripts" --add-data "tools;tools" --add-data "imgs;imgs" PyKuai.py
 
-
+将显示风格和我给你的批量解压样本一致即可。
 全部把里面的字体都引用tools里的zpix.ttf
 
 其实只要和批量解压相同即可。
