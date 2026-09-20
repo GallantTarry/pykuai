@@ -106,7 +106,7 @@ class GeekBootScreen(QWidget):
 
         # 【核心定制】：双色文本 + 作者宣示 + 上帝诗篇
         self.lbl_sys = QLabel(
-            "<span style='color: #00FF00;'>PyKuai Terminal [Version 1.2.4]</span><br>"
+            "<span style='color: #00FF00;'>PyKuai Terminal [Version 1.2.5]</span><br>"
             "<span style='color: #00FF00;'>Author: <b>TuKuai</b> | Username: <b>GallantTarry</b></span><br><br>"
             "<span style='color: #FF9800;'><i>\"The Lord is my shepherd.\"</i></span><br><br>"
             "<span style='color: #00FF00;'>Initializing secure connection...</span><br>"
@@ -151,7 +151,7 @@ class GeekBootScreen(QWidget):
 
     def check_auth(self):
         if self.cmd_input.text().strip().lower() == "helloworld":
-            self.lbl_sys.setText("<span style='color: #00FFFF;'>Access Granted. Welcome, Master.<br>Loading PyKuai modules...</span>")
+            self.lbl_sys.setText("<span style='color: #FF9800;'>Access Granted. Welcome, Master.<br>Loading PyKuai modules...</span>")
             self.cmd_input.setDisabled(True)
             QTimer.singleShot(600, self.enter_main)
         else:
@@ -196,7 +196,7 @@ class TitleBar(QFrame):
         self.btn_menu.setToolTip("系统设置菜单")
         self.btn_menu.setStyleSheet("""
             QPushButton { color: #888; background: transparent; border: none; font-size: 18px; font-weight: bold; }
-            QPushButton:hover { color: #00FFFF; }
+            QPushButton:hover { color: #FF9800; }
         """)
         self.btn_menu.clicked.connect(self.show_settings_menu)
         layout.addWidget(self.btn_menu)
@@ -676,6 +676,17 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
+    # 【修改点】：将原先在底部的图标设置代码，移动到单例锁检测之前
+    if os.path.exists(ICON_PATH):
+        app.setWindowIcon(QIcon(ICON_PATH))
+
+        # 2. 提前：加载并设置全局字体 (zpix.ttf)
+        font_id = QFontDatabase.addApplicationFont(FONT_PATH)
+        if font_id != -1:
+            font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
+            custom_font = QFont(font_family, 11)
+            custom_font.setStyleStrategy(QFont.PreferAntialias)
+            app.setFont(custom_font)
     # 单例启动文件锁
     if os.name == 'nt':
         import ctypes
