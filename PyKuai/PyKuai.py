@@ -106,7 +106,7 @@ class GeekBootScreen(QWidget):
 
         # 【核心定制】：双色文本 + 作者宣示 + 上帝诗篇
         self.lbl_sys = QLabel(
-            "<span style='color: #00FF00;'>PyKuai Terminal [Version 1.2.5]</span><br>"
+            "<span style='color: #00FF00;'>PyKuai Terminal [Version 1.2.6]</span><br>"
             "<span style='color: #00FF00;'>Author: <b>TuKuai</b> | Username: <b>GallantTarry</b></span><br><br>"
             "<span style='color: #FF9800;'><i>\"The Lord is my shepherd.\"</i></span><br><br>"
             "<span style='color: #00FF00;'>Initializing secure connection...</span><br>"
@@ -179,10 +179,11 @@ class TitleBar(QFrame):
 
         lbl_icon = QLabel()
         if os.path.exists(ICON_PATH):
-            pixmap = QPixmap(ICON_PATH).scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            # 用 QIcon 智能接管，自动抽取最匹配 24x24 的原生帧
+            icon = QIcon(ICON_PATH)
+            pixmap = icon.pixmap(24, 24)
             lbl_icon.setPixmap(pixmap)
         layout.addWidget(lbl_icon)
-        layout.addSpacing(5)
 
         title = QLabel("PyKuai")
         title.setFont(QFont(QApplication.font().family(), 12, QFont.Bold))
@@ -316,6 +317,10 @@ class PyKuaiMain(QMainWindow):
         self.tray_icon = QSystemTrayIcon(self)
         if os.path.exists(ICON_PATH):
             self.tray_icon.setIcon(QIcon(ICON_PATH))
+
+         # ====== 新增：为系统托盘注入悬停提示文字 ======
+        self.tray_icon.setToolTip("PyKuai")
+         # ========================================
 
         tray_menu = QMenu()
         tray_menu.setStyleSheet("""
