@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pykuai"
+version = "1.2.7"
+description = "PyKuai - 现代化极客暗黑终端脚本工作台 (Modular Cyber-Dark Script Workbench)"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "TuKuai", email = "tukuai@gallanttarry.dev" }
+]
+keywords = ["cli", "terminal", "workbench", "cyberpunk", "rich", "automation", "toolkit"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Environment :: Console",
+    "Operating System :: OS Independent",
+    "Topic :: Utilities"
+]
+dependencies = [
+    "rich>=13.0.0",
+    "openpyxl>=3.0.0",
+    "Pillow>=9.0.0",
+    "pypdf>=3.0.0"
+]
+
+[project.optional-dependencies]
+office = ["pandas>=1.5.0"]
+media = ["yt-dlp>=2023.0.0"]
+cv = ["opencv-python>=4.5.0", "img2pdf>=0.4.0"]
+archive = ["rarfile>=4.0"]
+all = [
+    "pandas>=1.5.0",
+    "yt-dlp>=2023.0.0",
+    "opencv-python>=4.5.0",
+    "img2pdf>=0.4.0",
+    "rarfile>=4.0"
+]
+
+[project.scripts]
+pykuai = "pykuai.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pykuai*"]
+
+[tool.setuptools.package-data]
+"pykuai" = ["tools/*", "assets/*"]
