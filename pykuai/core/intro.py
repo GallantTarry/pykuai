@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 PyKuai Desktop Snake Slither-in Overlay
-像素青蛇从 PowerShell 窗口外侧桌面上游走，爬向窗口左上角图标位置并激起绿光脉冲，
+像素青蛇从 PowerShell 窗口外侧桌面上游走，精准爬向窗口左上角图标位置并激起绿光脉冲，
 将 Windows PowerShell 标题与图标瞬间激活为 pykuai。
 """
 import os
@@ -34,6 +34,13 @@ def find_terminal_window():
         title = buf.value.lower()
         if any(k in title for k in ["powershell", "cmd", "terminal", "pykuai"]):
             return fg
+        # 检查祖先顶层窗口
+        GA_ROOT = 2
+        root = user32.GetAncestor(fg, GA_ROOT)
+        if root and user32.IsWindowVisible(root):
+            user32.GetClassNameW(root, buf, 256)
+            if buf.value in ["CASCADIA_HOSTING_WINDOW_CLASS", "ConsoleWindowClass"]:
+                return root
 
     # 2. 获取当前控制台窗口句柄
     c_hwnd = kernel32.GetConsoleWindow()
@@ -48,7 +55,8 @@ def find_terminal_window():
             buf = ctypes.create_unicode_buffer(256)
             user32.GetClassNameW(h, buf, 256)
             if buf.value in ["CASCADIA_HOSTING_WINDOW_CLASS", "ConsoleWindowClass"]:
-                candidates.append(h)
+                if not user32.IsIconic(h):
+                    candidates.append(h)
         return True
 
     WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
@@ -60,7 +68,7 @@ def find_terminal_window():
 
 
 def get_visual_window_rect(hwnd):
-    """获取剔除 DWM 隐形阴影后的真实可视窗口边界 (支持 Win10/11)"""
+    """获取剔除 DWM 隐形阴影后的真实可视物理窗口边界 (支持 Win10/11)"""
     user32 = ctypes.windll.user32
     dwmapi = ctypes.windll.dwmapi
     rect = wintypes.RECT()
@@ -84,65 +92,86 @@ class DesktopSnakeOverlay(QWidget):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
-        # 覆盖全屏幕桌面
-        screen = QApplication.primaryScreen().geometry()
-        self.setGeometry(screen)
-        self.screen_w = screen.width()
-        self.screen_h = screen.height()
+        # 覆盖全屏幕桌面 (支持虚拟多显示器边界)
+        screen = QApplication.primaryScreen()
+        v_geo = screen.virtualGeometry() if screen else QApplication.primaryScreen().geometry()
+        self.setGeometry(v_geo)
+        self.screen_w = v_geo.width()
+        self.screen_h = v_geo.height()
 
     def detect_terminal_rect(self):
-        """探测当前 PowerShell / Windows Terminal 窗口与顶栏第一标签图标的真实坐标"""
+        """
+        探测当前 PowerShell / Windows Terminal 窗口与顶栏第一标签图标的真实坐标
+        严谨适配 Windows 10/11 系统的 High-DPI 缩放（如 125%、150%、200%）
+        """
         user32 = ctypes.windll.user32
         hwnd = self.target_hwnd or find_terminal_window()
         self.target_hwnd = hwnd
+
+        screen = QApplication.primaryScreen()
+        dpr = screen.devicePixelRatio() if screen else 1.0
 
         is_maximized = bool(hwnd and user32.IsZoomed(hwnd))
 
         if hwnd:
             rect = get_visual_window_rect(hwnd)
+            phys_left = rect.left
+            phys_top = rect.top
+            phys_w = rect.right - rect.left
+            phys_h = rect.bottom - rect.top
+
             if is_maximized:
-                # 窗口全屏最大化状态：标签栏顶贴屏幕最上方
+                # 窗口全屏最大化状态：顶边与左边对齐屏幕原点
                 self.term_x = 0
                 self.term_y = 0
                 self.term_w = self.screen_w
                 self.term_h = self.screen_h
-                # 全屏时第一标签图标精确位置
-                self.target_x = 22
-                self.target_y = 16
+                # 全屏时第一标签图标在 Qt 逻辑像素下的精确位置
+                self.target_x = 20.0
+                self.target_y = 16.0
             else:
-                self.term_x = max(0, rect.left)
-                self.term_y = max(0, rect.top)
-                self.term_w = min(self.screen_w - self.term_x, rect.right - rect.left)
-                self.term_h = min(self.screen_h - self.term_y, rect.bottom - rect.top)
-                # 正常窗口时第一标签图标精确位置 (微调贴合 WT 与 conhost 标签页)
-                self.target_x = self.term_x + 22
-                self.target_y = self.term_y + 16
+                # 将 Win32 物理像素除以 dpr 转换为 Qt 逻辑像素，彻底解决 150% 缩放下位置偏移问题！
+                self.term_x = phys_left / dpr
+                self.term_y = phys_top / dpr
+                self.term_w = phys_w / dpr
+                self.term_h = phys_h / dpr
+
+                buf = ctypes.create_unicode_buffer(256)
+                user32.GetClassNameW(hwnd, buf, 256)
+                if buf.value == "ConsoleWindowClass":
+                    # 经典控制台标题栏图标中心
+                    self.target_x = self.term_x + 16.0
+                    self.target_y = self.term_y + 14.0
+                else:
+                    # Windows Terminal 顶栏第一个 Tab 图标中心 (贴合标签栏)
+                    self.target_x = self.term_x + 20.0
+                    self.target_y = self.term_y + 16.0
         else:
             self.term_w = min(1100, int(self.screen_w * 0.75))
             self.term_h = min(700, int(self.screen_h * 0.75))
             self.term_x = (self.screen_w - self.term_w) // 2
             self.term_y = (self.screen_h - self.term_h) // 2
-            self.target_x = self.term_x + 22
-            self.target_y = self.term_y + 16
+            self.target_x = self.term_x + 20.0
+            self.target_y = self.term_y + 16.0
 
-        # 蛇的起点：严格设定在终端窗口外侧桌面上 (窗口左下方外侧)
-        if self.term_x > 140:
-            self.start_x = self.term_x - 110
-            self.start_y = min(self.screen_h - 100, self.term_y + 200)
+        # 蛇的起点：严格设定在终端窗口外侧桌面上 (窗口左下方外侧桌面)
+        if self.term_x > 120:
+            self.start_x = self.term_x - 100
+            self.start_y = min(self.screen_h - 100, self.term_y + 180)
         else:
             self.start_x = max(20, self.target_x - 10)
-            self.start_y = min(self.screen_h - 40, self.term_y + 360)
+            self.start_y = min(self.screen_h - 40, self.term_y + 320)
 
     def init_animation(self):
         self.frame = 0
-        self.total_frames = 70  # 约 1.1 秒，轻快流畅
+        self.total_frames = 65  # 约 1.0 秒，极速流畅
         self.snake_length = 18
         self.body_points = []
 
         # 左上角融合脉冲波参数
         self.pulse_active = False
         self.pulse_radius = 0
-        self.pulse_max = 70
+        self.pulse_max = 60
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_animation)
@@ -161,15 +190,15 @@ class DesktopSnakeOverlay(QWidget):
         ttt = tt * t
 
         p0 = (self.start_x, self.start_y)
-        p1 = (self.term_x - 30, self.term_y + 100)
-        p2 = (self.term_x - 5, self.term_y + 35)
+        p1 = (self.term_x - 25, self.term_y + 90)
+        p2 = (self.term_x - 5, self.term_y + 30)
         p3 = (self.target_x, self.target_y)
 
         hx = uuu * p0[0] + 3 * uu * t * p1[0] + 3 * u * tt * p2[0] + ttt * p3[0]
         hy = uuu * p0[1] + 3 * uu * t * p1[1] + 3 * u * tt * p2[1] + ttt * p3[1]
 
         # 正弦蛇行摆动
-        wiggle = math.sin(self.frame * 0.5) * 6 * max(0.1, 1.0 - t * 0.8)
+        wiggle = math.sin(self.frame * 0.5) * 5 * max(0.1, 1.0 - t * 0.8)
         angle = math.atan2(p3[1] - hy, p3[0] - hx) if t < 0.95 else 0
         perp_x = -math.sin(angle) * wiggle
         perp_y = math.cos(angle) * wiggle
@@ -185,7 +214,7 @@ class DesktopSnakeOverlay(QWidget):
                 self.pulse_active = True
                 apply_terminal_identity("pykuai")
 
-            self.pulse_radius += (self.pulse_max - self.pulse_radius) * 0.22
+            self.pulse_radius += (self.pulse_max - self.pulse_radius) * 0.25
 
         if self.frame >= self.total_frames:
             self.timer.stop()
@@ -197,26 +226,22 @@ class DesktopSnakeOverlay(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, False)  # 保持硬核复古点阵像素
 
-        # 1. 终端窗口左上角高亮虚线框 (标示小蛇奔赴的目标位置)
-        pen_target = QPen(QColor(16, 185, 129, 90), 2, Qt.DashLine)
-        painter.setPen(pen_target)
-        painter.setBrush(Qt.NoBrush)
-        painter.drawRoundedRect(self.term_x, self.term_y, min(240, self.term_w), 34, 6, 6)
+        # 注：根据用户明确要求，已彻底删除导航栏外侧虚线高亮框
 
-        # 2. 钻入左上角激起的代码脉冲波
+        # 1. 钻入左上角激起的代码脉冲波
         if self.pulse_active:
             alpha = int(max(0, 240 * (1.0 - (self.pulse_radius / self.pulse_max))))
             if alpha > 0:
-                pen_pulse = QPen(QColor(0, 255, 0, alpha), 3)
+                pen_pulse = QPen(QColor(0, 255, 0, alpha), 2)
                 painter.setPen(pen_pulse)
                 painter.drawEllipse(QPointF(self.target_x, self.target_y), self.pulse_radius, self.pulse_radius)
 
                 # 伴随光芒文字
                 painter.setPen(QColor(255, 152, 0, alpha))
                 painter.setFont(QFont("Consolas", 10, QFont.Bold))
-                painter.drawText(int(self.target_x + 35), int(self.target_y + 5), "⚡ PYKUAI ⚡")
+                painter.drawText(int(self.target_x + 30), int(self.target_y + 5), "⚡ PYKUAI ⚡")
 
-        # 3. 绘制像素蛇身
+        # 2. 绘制像素蛇身
         if not self.body_points:
             return
 
@@ -236,7 +261,7 @@ class DesktopSnakeOverlay(QWidget):
             painter.setPen(QColor(57, 255, 20, 180))
             painter.drawRect(px, py, cur_size, cur_size)
 
-        # 4. 绘制蛇头与粉舌
+        # 3. 绘制蛇头与粉舌
         head = self.body_points[0]
         hx, hy = head[0], head[1]
         head_size = 18
