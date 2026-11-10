@@ -166,6 +166,7 @@ class PluginWidget(QWidget):
                 padding: 8px;
             }
             QLineEdit:focus { border: 1px solid #00FF00; }
+            QLineEdit:disabled { color: #555; border: 1px solid #333; background-color: rgba(0, 0, 0, 50); }
         """)
 
         self.btn_browse = QPushButton("检索...")
@@ -173,6 +174,7 @@ class PluginWidget(QWidget):
         self.btn_browse.setStyleSheet("""
             QPushButton { background-color: #444; color: white; border-radius: 5px; padding: 8px 15px; font-weight: bold; }
             QPushButton:hover { background-color: #666; }
+            QPushButton:disabled { background-color: #333; color: #777; border: 1px solid #333; }
         """)
         self.btn_browse.clicked.connect(self.select_folder)
 
@@ -198,6 +200,7 @@ class PluginWidget(QWidget):
                 padding: 8px;
             }
             QLineEdit:focus { border: 1px solid #FF9800; }
+            QLineEdit:disabled { color: #555; border: 1px solid #333; background-color: rgba(0, 0, 0, 50); }
         """)
 
         pwd_layout.addWidget(self.lbl_pwd)
@@ -218,7 +221,7 @@ class PluginWidget(QWidget):
                 font-size: 13px;
             }
         """)
-        self.log_console.setText("等待初始化解压指令 (支持无限层级子目录穿透与智能解密)...\n")
+        self.log_console.setHtml("<span style='color: #00FF00;'>等待初始化解压指令 (支持无限层级子目录穿透与智能解密)...</span><br>")
         layout.addWidget(self.log_console)
 
         # 5. 核心执行按钮
@@ -234,8 +237,8 @@ class PluginWidget(QWidget):
                 font-size: 15px; 
                 border-radius: 6px; 
             }
-            QPushButton:hover { background-color: rgba(0, 255, 0, 30); box-shadow: 0 0 10px #00FF00; }
-            QPushButton:disabled { color: #555; border: 1px solid #555; background-color: transparent; }
+            QPushButton:hover { background-color: rgba(0, 255, 0, 30); }
+            QPushButton:disabled { color: #555; border: 1px solid #333; background-color: transparent; }
         """)
         self.btn_start.clicked.connect(self.start_extraction)
         layout.addWidget(self.btn_start, 0, Qt.AlignCenter)
@@ -244,10 +247,21 @@ class PluginWidget(QWidget):
         folder_path = QFileDialog.getExistingDirectory(self, "选择存放压缩包的最外层文件夹")
         if folder_path:
             self.entry_folder.setText(folder_path)
-            self.log_console.append(f"> 目标战区已锁定: {folder_path}\n> 引擎将自动下潜搜索所有子目录。")
+            self.append_log(f"> 目标战区已锁定: {folder_path}\n> 引擎将自动下潜搜索所有子目录。")
 
     def append_log(self, text):
-        self.log_console.append(text)
+        clean_html = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+        if "❌" in text or "失败" in text or "错误" in text or "缺失" in text:
+            formatted = f"<span style='color: #FF5252;'>{clean_html}</span>"
+        elif "⚠️" in text or "警告" in text:
+            formatted = f"<span style='color: #FF9800;'>{clean_html}</span>"
+        elif text.startswith("-") or text.startswith("="):
+            formatted = f"<span style='color: #666666;'>{clean_html}</span>"
+        elif "✅" in text or "🎉" in text:
+            formatted = f"<span style='color: #00FF00; font-weight: bold;'>{clean_html}</span>"
+        else:
+            formatted = f"<span style='color: #00FF00;'>{clean_html}</span>"
+        self.log_console.append(formatted)
         self.log_console.moveCursor(QTextCursor.End)
 
     def start_extraction(self):
@@ -260,6 +274,7 @@ class PluginWidget(QWidget):
 
         self.btn_start.setDisabled(True)
         self.btn_browse.setDisabled(True)
+        self.entry_folder.setDisabled(True)
         self.entry_pwd.setDisabled(True)
         self.btn_start.setText("⚙️ 雷达穿透运转中...")
         self.log_console.clear()
@@ -273,8 +288,9 @@ class PluginWidget(QWidget):
     def on_extract_finished(self, success_count, fail_count):
         self.btn_start.setDisabled(False)
         self.btn_browse.setDisabled(False)
+        self.entry_folder.setDisabled(False)
         self.entry_pwd.setDisabled(False)
-        self.btn_start.setText("⚡ 一键解压全境")
+        self.btn_start.setText("🚀 一键解压全境")
 
         if success_count > 0 or fail_count > 0:
             QMessageBox.information(self, "深度任务简报",

@@ -147,7 +147,7 @@ class PluginWidget(QWidget):
             chk.setCursor(Qt.PointingHandCursor)
             chk.setStyleSheet("""
                 QCheckBox {
-                    color: #00FF00;
+                    color: #E0E0E0;
                     font-size: 14px;
                     background: transparent;
                     border: none;
@@ -204,7 +204,7 @@ class PluginWidget(QWidget):
                 font-size: 15px; 
                 border-radius: 6px; 
             }
-            QPushButton:hover { background-color: rgba(0, 255, 0, 30); box-shadow: 0 0 10px #00FF00; }
+            QPushButton:hover { background-color: rgba(0, 255, 0, 30); }
             QPushButton:disabled { color: #555; border: 1px solid #555; background-color: transparent; }
         """)
         self.btn_convert.clicked.connect(self.generate_ico)

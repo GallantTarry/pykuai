@@ -166,12 +166,13 @@ class PluginWidget(QWidget):
         self.entry_folder.setStyleSheet("""
             QLineEdit {
                 background-color: rgba(0, 0, 0, 100);
-                color: #FF9800;
+                color: #00FF00;
                 border: 1px solid #555;
                 border-radius: 5px;
                 padding: 8px;
             }
-            QLineEdit:focus { border: 1px solid #FF9800; }
+            QLineEdit:focus { border: 1px solid #00FF00; }
+            QLineEdit:disabled { color: #555; border: 1px solid #333; background-color: rgba(0, 0, 0, 50); }
         """)
 
         self.btn_browse = QPushButton("检索...")
@@ -179,6 +180,7 @@ class PluginWidget(QWidget):
         self.btn_browse.setStyleSheet("""
             QPushButton { background-color: #444; color: white; border-radius: 5px; padding: 8px 15px; font-weight: bold; }
             QPushButton:hover { background-color: #666; }
+            QPushButton:disabled { background-color: #333; color: #777; border: 1px solid #333; }
         """)
         self.btn_browse.clicked.connect(self.select_folder)
 
@@ -274,7 +276,7 @@ class PluginWidget(QWidget):
                 font-size: 15px; 
                 border-radius: 6px; 
             }
-            QPushButton:hover { background-color: rgba(0, 255, 0, 30); box-shadow: 0 0 10px #00FF00; }
+            QPushButton:hover { background-color: rgba(0, 255, 0, 30); }
             QPushButton:disabled { color: #555; border: 1px solid #555; background-color: transparent; }
         """)
         self.btn_start.clicked.connect(self.start_download)

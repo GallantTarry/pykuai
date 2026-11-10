@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                QFrame, QMessageBox, QTreeWidget, QTreeWidgetItem,
                                QSystemTrayIcon, QMenu, QSizeGrip)
 from PySide6.QtCore import Qt, QTimer, QPoint
-from PySide6.QtGui import QFont, QIcon, QFontDatabase, QPixmap, QAction
+from PySide6.QtGui import QFont, QIcon, QFontDatabase, QPixmap, QAction, QColor
 
 # ==========================================
 # 全局路径与配置 (单文件 EXE 终极适配版)
@@ -454,7 +454,7 @@ class PyKuaiMain(QMainWindow):
 
         self.fav_root = QTreeWidgetItem(self.tree_widget, ["⭐ 我的收藏夹"])
         self.fav_root.setFont(0, QFont(QApplication.font().family(), 11, QFont.Bold))
-        self.fav_root.setForeground(0, Qt.yellow)
+        self.fav_root.setForeground(0, QColor("#FF9800"))
         self.fav_root.setExpanded(True)
 
         page_index = 0
@@ -510,7 +510,7 @@ class PyKuaiMain(QMainWindow):
         for script in self.all_scripts_info:
             if script["path"] in self.favorites:
                 fav_child = QTreeWidgetItem(self.fav_root, [f"📄 {script['name']}"])
-                fav_child.setForeground(0, Qt.cyan)
+                fav_child.setForeground(0, QColor("#FF9800"))
                 self.item_to_index[id(fav_child)] = script["page_index"]
 
     def toggle_favorite(self, script_path, btn_widget):
@@ -523,7 +523,7 @@ class PyKuaiMain(QMainWindow):
             self.favorites.append(script_path)
             btn_widget.setText("🌟 已在收藏夹")
             btn_widget.setStyleSheet(
-                "QPushButton { color: #FFFF00; border: 1px solid #FFFF00; background: rgba(255, 255, 0, 15); border-radius: 6px; }")
+                "QPushButton { color: #FF9800; border: 1px solid #FF9800; background: rgba(255, 152, 0, 15); border-radius: 6px; font-weight: bold; }")
 
         self.save_favorites_data()
         self.refresh_favorites_tree()
@@ -566,7 +566,7 @@ class PyKuaiMain(QMainWindow):
         if script_full_path in self.favorites:
             btn_fav.setText("🌟 已在收藏夹")
             btn_fav.setStyleSheet(
-                "QPushButton { color: #FFFF00; border: 1px solid #FFFF00; background: rgba(255, 255, 0, 15); border-radius: 6px; }")
+                "QPushButton { color: #FF9800; border: 1px solid #FF9800; background: rgba(255, 152, 0, 15); border-radius: 6px; font-weight: bold; }")
         else:
             btn_fav.setText("⭐ 加入收藏夹")
             btn_fav.setStyleSheet(
@@ -598,7 +598,7 @@ class PyKuaiMain(QMainWindow):
         btn_run.setFixedSize(220, 45)
         btn_run.setStyleSheet("""
             QPushButton { background-color: rgba(0, 255, 0, 10); color: #00FF00; border: 1px solid #00FF00; border-radius: 6px; }
-            QPushButton:hover { background-color: rgba(0, 255, 0, 30); box-shadow: 0 0 10px #00FF00; }
+            QPushButton:hover { background-color: rgba(0, 255, 0, 30); }
             QPushButton:pressed { background-color: rgba(0, 255, 0, 60); }
         """)
 

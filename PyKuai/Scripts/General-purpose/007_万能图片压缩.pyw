@@ -226,7 +226,7 @@ class PluginWidget(QWidget):
                 font-size: 15px; 
                 border-radius: 6px; 
             }
-            QPushButton:hover { background-color: rgba(0, 255, 0, 30); box-shadow: 0 0 10px #00FF00; }
+            QPushButton:hover { background-color: rgba(0, 255, 0, 30); }
             QPushButton:disabled { color: #555; border: 1px solid #555; background-color: transparent; }
         """)
         self.btn_start.clicked.connect(self.start_compress)
