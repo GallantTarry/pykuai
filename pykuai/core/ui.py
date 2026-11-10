@@ -23,6 +23,8 @@ from rich.table import Table
 from rich import box
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeRemainingColumn
 
+from pykuai.core.i18n import t
+
 # 极客暗黑主题 (Cyber-Dark Theme)
 CYBER_THEME = Theme({
     "brand.orange": "#FF9800",
@@ -38,15 +40,19 @@ CYBER_THEME = Theme({
 
 console = Console(theme=CYBER_THEME, legacy_windows=False)
 
-# 精美代码点阵 PyKuai 标头 (精简优雅：大字符 PyKuai + 版本/作者/信仰诗篇，不挤压)
-BANNER = (
-    "[bold #00FF00]██████╗ ██╗   ██╗██╗  ██╗██╗   ██╗ █████╗ ██╗[/]\n"
-    "[bold #00FF00]██╔══██╗╚██╗ ██╔╝██║ ██╔╝██║   ██║██╔══██╗██║[/]   [bold #FF9800]v1.2.7[/bold #FF9800]\n"
-    "[bold #10b981]██████╔╝ ╚████╔╝ █████═╝ ██║   ██║███████║██║[/]   [dim]作者:[/dim] [bold #FF9800]土块[/bold #FF9800] | [bold #10b981]GallantTarry[/bold #10b981]\n"
-    "[bold #10b981]██╔═══╝   ╚██╔╝  ██╔═██╗ ██║   ██║██╔══██║██║[/]   [italic #FF9800]\"The Lord is my shepherd.\"[/italic #FF9800]\n"
-    "[bold #047857]██║        ██║   ██║  ██╗╚██████╔╝██║  ██║██║[/]\n"
-    "[bold #047857]╚═╝        ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝[/]"
-)
+
+def get_banner() -> str:
+    """动态生成双语点阵 Banner"""
+    author_label = t("author_label")
+    return (
+        "[bold #00FF00]██████╗ ██╗   ██╗██╗  ██╗██╗   ██╗ █████╗ ██╗[/]\n"
+        "[bold #00FF00]██╔══██╗╚██╗ ██╔╝██║ ██╔╝██║   ██║██╔══██╗██║[/]   [bold #FF9800]v1.2.7[/bold #FF9800]\n"
+        f"[bold #10b981]██████╔╝ ╚████╔╝ █████═╝ ██║   ██║███████║██║[/]   [dim]{author_label}:[/dim] [bold #FF9800]土块[/bold #FF9800] | [bold #10b981]GallantTarry[/bold #10b981]\n"
+        "[bold #10b981]██╔═══╝   ╚██╔╝  ██╔═██╗ ██║   ██║██╔══██║██║[/]   [italic #FF9800]\"The Lord is my shepherd.\"[/italic #FF9800]\n"
+        "[bold #047857]██║        ██║   ██║  ██╗╚██████╔╝██║  ██║██║[/]\n"
+        "[bold #047857]╚═╝        ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝[/]"
+    )
+
 
 _watchdog_spawned = False
 _wt_settings_path = None
@@ -205,7 +211,7 @@ def get_custom_logger():
 def print_banner():
     """打印控制台无挤压 Cyber Banner 与极简元信息"""
     console.print()
-    console.print(BANNER)
+    console.print(get_banner())
     console.print()
 
 
