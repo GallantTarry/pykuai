@@ -7,7 +7,6 @@ import sys
 import shlex
 import atexit
 import signal
-import argparse
 from rich.table import Table
 from rich.prompt import Prompt
 from rich import box
@@ -366,12 +365,10 @@ def run_interactive_console(skip_intro: bool = False):
                 if os.path.exists(raw_path):
                     eng = get_engine("ifc")
                     if eng:
+                        from pykuai.core.tray import run_tool_tray
+
                         console.print("[dim]› Image drop detected, opening ifc (Image Format Converter)...[/dim]")
-                        if hasattr(eng, "launch_with_path"):
-                            eng.launch_with_path(console, raw_path)
-                        else:
-                            args = argparse.Namespace(image=raw_path, to="ico", sizes="16,32,48,64,128,256", quality=92, output=None)
-                            eng.run_direct(args, console)
+                        run_tool_tray(console, cli_args=["ifc", raw_path], interactive=True)
                         console.print()
                         continue
 

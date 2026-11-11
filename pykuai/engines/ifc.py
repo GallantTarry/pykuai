@@ -8,16 +8,18 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import tempfile
 from dataclasses import dataclass
 from typing import Optional
 
 from rich import box
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Prompt
 
 from pykuai.core.base import BaseEngine
-from pykuai.core.ui import print_error, print_step
+from pykuai.core.ui import print_error, print_step, print_warning
 
 
 @dataclass(frozen=True)
@@ -58,7 +60,33 @@ IMAGE_EXTENSIONS = (
 
 def _clean_path(raw: str) -> str:
     """Clean dragged/pasted paths by stripping whitespace and surrounding quotes."""
-    return raw.strip().strip("\"'")
+    clean = raw.strip()
+    if len(clean) >= 2 and clean[0] == clean[-1] and clean[0] in "\"'":
+        clean = clean[1:-1]
+    return os.path.expanduser(clean)
+
+
+def _validate_ico_sizes(sizes: list[int]) -> list[int]:
+    """Reject layers Pillow cannot encode instead of silently omitting them."""
+    if not sizes or any(not isinstance(size, int) or not 8 <= size <= 256 for size in sizes):
+        raise ValueError("ICO sizes must be whole numbers between 8 and 256 pixels.")
+    return sorted(set(sizes))
+
+
+def _parse_ico_sizes(raw: str) -> list[int]:
+    try:
+        return _validate_ico_sizes([int(part.strip()) for part in raw.split(",")])
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ValueError("ICO sizes must be comma-separated whole numbers between 8 and 256.") from exc
+
+
+def _same_file(first: str, second: str) -> bool:
+    if os.path.normcase(os.path.abspath(first)) == os.path.normcase(os.path.abspath(second)):
+        return True
+    try:
+        return os.path.samefile(first, second)
+    except OSError:
+        return False
 
 
 def _normalize_format(fmt: str) -> str:
@@ -149,6 +177,56 @@ def _build_ifc_studio_app(initial_path: str = ""):
     from pykuai.core.tui import ActionChip, PyKuaiStudioApp, ToggleChip
 
     extra_css = """
+    #studio-card {
+        height: 24;
+        padding: 0 1;
+    }
+    #studio-scroll {
+        height: 1fr;
+        min-height: 1;
+    }
+    .studio-title, .shown-err {
+        height: auto;
+    }
+    .shown-err {
+        max-height: 3;
+    }
+    .local-files {
+        height: auto;
+        margin-bottom: 1;
+    }
+    .local-files ActionChip {
+        width: 100%;
+        min-width: 0;
+        content-align: left middle;
+        margin-right: 0;
+    }
+    Screen.narrow .option-row {
+        layout: grid;
+        grid-size: 2;
+        grid-columns: 1fr;
+        grid-rows: 1;
+        grid-gutter: 0 1;
+        height: auto;
+    }
+    Screen.narrow .option-row .field-label,
+    Screen.narrow #opt-sharpen {
+        column-span: 2;
+    }
+    Screen.narrow #opt-sharpen {
+        width: 100%;
+    }
+    Screen.narrow .option-row ToggleChip,
+    Screen.narrow .option-row ActionChip {
+        width: 1fr;
+        min-width: 0;
+        margin-right: 0;
+    }
+    .action-bar ActionChip {
+        width: 1fr;
+        min-width: 0;
+        padding: 0 1;
+    }
     #ico-section {
         height: auto;
     }
@@ -184,50 +262,51 @@ def _build_ifc_studio_app(initial_path: str = ""):
                     )
 
                     if local_images:
-                        with Horizontal(classes="compact-row"):
+                        with Vertical(classes="local-files"):
                             yield Static("Files:", classes="field-label")
                             for idx, img_p in enumerate(local_images):
                                 yield ActionChip(
-                                    os.path.basename(img_p),
+                                    escape(os.path.basename(img_p)),
                                     value=img_p,
                                     variant_class="-file",
                                     id=f"pick-{idx}",
+                                    tooltip=img_p,
                                 )
 
                     fmt_keys = list(FORMAT_SPECS.keys())
-                    with Horizontal(classes="compact-tight"):
+                    with Horizontal(classes="compact-tight option-row"):
                         yield Static("To:   ", classes="field-label")
                         for key in fmt_keys[:4]:
                             spec = FORMAT_SPECS[key]
                             yield ToggleChip(spec.label, value=key, active=(key == "ico"), id=f"fmt-{key}")
-                    with Horizontal(classes="compact-row"):
+                    with Horizontal(classes="compact-row option-row"):
                         yield Static("      ", classes="field-label")
                         for key in fmt_keys[4:]:
                             spec = FORMAT_SPECS[key]
                             yield ToggleChip(spec.label, value=key, active=False, id=f"fmt-{key}")
 
                     with Vertical(id="ico-section"):
-                        with Horizontal(classes="compact-tight"):
+                        with Horizontal(classes="compact-tight option-row"):
                             yield Static("ICO:  ", classes="field-label")
                             yield ActionChip("Std", value=STANDARD_ICO_SIZES, variant_class="-preset", id="pre-std")
                             yield ActionChip("All", value=ALL_ICO_SIZES, variant_class="-preset", id="pre-all")
                             yield ActionChip("Web", value=FAVICON_ICO_SIZES, variant_class="-preset", id="pre-fav")
                             yield ToggleChip("Sharpen ≤32px", value="sharpen", active=True, id="opt-sharpen")
 
-                        with Horizontal(classes="compact-tight"):
+                        with Horizontal(classes="compact-tight option-row"):
                             yield Static("Sizes:", classes="field-label")
                             for s in ALL_ICO_SIZES[:5]:
                                 yield ToggleChip(str(s), value=s, active=(s in default_set), id=f"sz-{s}")
-                        with Horizontal(classes="compact-row"):
+                        with Horizontal(classes="compact-row option-row"):
                             yield Static("      ", classes="field-label")
                             for s in ALL_ICO_SIZES[5:]:
                                 yield ToggleChip(str(s), value=s, active=(s in default_set), id=f"sz-{s}")
                             yield Static(f"{len(STANDARD_ICO_SIZES)}", id="layer-count", classes="status-ok")
 
-                    with Horizontal(id="quality-section", classes="compact-row hidden-section"):
+                    with Horizontal(id="quality-section", classes="compact-row option-row hidden-section"):
                         yield Static("Qual: ", classes="field-label")
-                        for q in (80, 90, 95, 100):
-                            yield ToggleChip(f"{q}%", value=q, active=(q == 90), id=f"qual-{q}")
+                        for q in (80, 90, 92, 95, 100):
+                            yield ToggleChip(f"{q}%", value=q, active=(q == 92), id=f"qual-{q}")
 
                     with Horizontal(classes="compact-tight"):
                         yield Static("Out:  ", classes="field-label")
@@ -237,15 +316,19 @@ def _build_ifc_studio_app(initial_path: str = ""):
                             classes="cyber-slim",
                         )
 
-                yield Static("", id="form-error", classes="hidden-err")
+                yield Static("", id="form-error", classes="hidden-err", markup=False)
 
                 with Horizontal(classes="action-bar"):
                     yield ActionChip("⚡ Convert", variant_class="-primary", id="btn-run")
                     yield ActionChip("✕ Cancel", variant_class="-danger", id="btn-cancel")
 
         def on_mount(self) -> None:
+            self.screen.set_class(self.size.width < 76, "narrow")
             if init_clean:
                 self.query_one("#btn-run", ActionChip).focus()
+
+        def on_resize(self, event) -> None:
+            self.screen.set_class(event.size.width < 76, "narrow")
 
         def _active_format(self) -> str:
             for chip in self.query(ToggleChip):
@@ -375,6 +458,19 @@ def _build_ifc_studio_app(initial_path: str = ""):
             sharpen_chip = self.query_one("#opt-sharpen", ToggleChip)
             raw_out = _clean_path(self.query_one("#out-input", Input).value)
             out_path = os.path.abspath(raw_out) if raw_out else None
+            if out_path:
+                output_ext = _normalize_format(os.path.splitext(out_path)[1])
+                if _same_file(clean_src, out_path):
+                    self._set_error("Output path must differ from the source image.")
+                elif os.path.isdir(out_path):
+                    self._set_error("Choose an output file path, not a directory.")
+                elif output_ext and output_ext != target_fmt:
+                    self._set_error(f"Output extension must match the selected {target_fmt.upper()} format.")
+                else:
+                    self._set_error("")
+                if self.query_one("#form-error", Static).has_class("shown-err"):
+                    self.query_one("#out-input", Input).focus()
+                    return
             self.exit(
                 (
                     os.path.abspath(clean_src),
@@ -411,7 +507,7 @@ class IfcEngine(BaseEngine):
             default="",
             help="Target format: ico, png, jpg, webp, bmp, gif, tiff, avif (auto-detected from -o or defaults to ico)",
         )
-        parser.add_argument("-s", "--sizes", default="16,32,48,64,128,256", help="Comma-separated ICO layer sizes (when output is ico)")
+        parser.add_argument("-s", "--sizes", default="16,32,48,64,128,256", help="Comma-separated ICO layer sizes, 8-256 pixels (when output is ico)")
         parser.add_argument("-q", "--quality", type=int, default=92, help="Output quality 1-100 for jpg/webp/avif (default: 92)")
         parser.add_argument("-o", "--output", help="Output file path")
         parser.add_argument("--no-sharpen", action="store_true", help="Disable edge sharpening on small ICO layers (<=32px)")
@@ -422,7 +518,7 @@ class IfcEngine(BaseEngine):
             return self.run_interactive(console)
 
         img_path = os.path.abspath(img_path)
-        out_arg = getattr(args, "output", None)
+        out_arg = _clean_path(getattr(args, "output", None) or "") or None
         explicit_to = _normalize_format(getattr(args, "to", "") or "")
 
         if explicit_to:
@@ -436,15 +532,16 @@ class IfcEngine(BaseEngine):
         else:
             target_fmt = "ico"
 
-        try:
-            sizes = [int(s.strip()) for s in args.sizes.split(",") if s.strip().isdigit()]
-        except Exception:
-            sizes = list(STANDARD_ICO_SIZES)
-        if not sizes:
-            sizes = list(STANDARD_ICO_SIZES)
+        sizes = list(STANDARD_ICO_SIZES)
+        if target_fmt == "ico":
+            try:
+                sizes = _parse_ico_sizes(getattr(args, "sizes", "16,32,48,64,128,256"))
+            except ValueError as exc:
+                print_error(str(exc))
+                return 1
 
         sharpen = not getattr(args, "no_sharpen", False)
-        quality = max(1, min(100, int(getattr(args, "quality", 92) or 92)))
+        quality = getattr(args, "quality", 92)
         return self._convert_image(img_path, target_fmt, sizes, out_arg, sharpen, quality, console)
 
     def launch_with_path(self, console: Console, path: str) -> int:
@@ -474,26 +571,35 @@ class IfcEngine(BaseEngine):
             img_path, target_fmt, sizes, out_path, sharpen, quality = selection
             return self._convert_image(img_path, target_fmt, sizes, out_path, sharpen, quality, console)
 
-        # Fallback text prompt for non-TTY / piped environments
-        console.print("[bold #FF9800]🎨 Image Format Converter (ifc)[/bold #FF9800]")
-        img_input = initial_path or Prompt.ask("[#10b981]?[/#10b981] Source image path")
-        img_path = os.path.abspath(_clean_path(img_input))
+        if sys.stdin is None or not sys.stdin.isatty():
+            print_error("Interactive input is unavailable. Pass a source path and options: pykuai tt ifc <image> [-t format].")
+            return 1
 
-        target_raw = Prompt.ask(
-            "[#10b981]?[/#10b981] Target format",
-            choices=list(FORMAT_SPECS.keys()),
-            default="ico",
-        )
-        target_fmt = _normalize_format(target_raw)
-        sizes = list(STANDARD_ICO_SIZES)
-        if target_fmt == "ico":
-            sizes_input = Prompt.ask(
-                "[#10b981]?[/#10b981] Packaging sizes (comma-separated)",
-                default="16,32,48,64,128,256",
+        # Rich prompts still work when stdin is a terminal and stdout is redirected.
+        console.print("[bold #FF9800]🎨 Image Format Converter (ifc)[/bold #FF9800]")
+        try:
+            img_input = initial_path or Prompt.ask("[#10b981]?[/#10b981] Source image path")
+            img_path = os.path.abspath(_clean_path(img_input))
+
+            target_raw = Prompt.ask(
+                "[#10b981]?[/#10b981] Target format",
+                choices=list(FORMAT_SPECS.keys()),
+                default="ico",
             )
-            parsed = [int(s.strip()) for s in sizes_input.split(",") if s.strip().isdigit()]
-            if parsed:
-                sizes = parsed
+            target_fmt = _normalize_format(target_raw)
+            sizes = list(STANDARD_ICO_SIZES)
+            if target_fmt == "ico":
+                sizes_input = Prompt.ask(
+                    "[#10b981]?[/#10b981] Packaging sizes (comma-separated)",
+                    default="16,32,48,64,128,256",
+                )
+                sizes = _parse_ico_sizes(sizes_input)
+        except EOFError:
+            print_error("Input ended before conversion options were supplied.")
+            return 1
+        except ValueError as exc:
+            print_error(str(exc))
+            return 1
 
         return self._convert_image(img_path, target_fmt, sizes, None, True, 92, console)
 
@@ -508,84 +614,128 @@ class IfcEngine(BaseEngine):
         console: Console,
     ) -> int:
         try:
-            from PIL import Image, ImageFilter
+            from PIL import Image, ImageFilter, ImageOps
         except ImportError:
             print_error("Missing dependency 'pillow'. Run: pip install pillow")
             return 1
 
         spec = FORMAT_SPECS.get(_normalize_format(target_fmt))
         if not spec:
-            print_error(f"Unsupported target format: {target_fmt}")
+            print_error(f"Unsupported target format: {escape(target_fmt)}")
             return 1
 
+        img_path = os.path.abspath(_clean_path(img_path))
         if not os.path.isfile(img_path):
-            print_error(f"File not found: {img_path}")
+            print_error(f"File not found: {escape(img_path)}")
+            return 1
+
+        Image.init()
+        if spec.pillow_fmt not in Image.SAVE:
+            print_error(f"Installed Pillow cannot write {spec.label}. Install a Pillow build with {spec.label} support.")
             return 1
 
         if not out_path:
             base_dir = os.path.dirname(img_path)
             base_name = os.path.splitext(os.path.basename(img_path))[0]
             out_path = os.path.join(base_dir, f"{base_name}{spec.ext}")
-            if os.path.abspath(out_path) == os.path.abspath(img_path):
+            if _same_file(img_path, out_path):
                 out_path = os.path.join(base_dir, f"{base_name}_converted{spec.ext}")
         else:
             out_path = os.path.abspath(_clean_path(out_path))
 
-        out_dir = os.path.dirname(out_path)
-        if out_dir:
-            os.makedirs(out_dir, exist_ok=True)
+        if _same_file(img_path, out_path):
+            print_error("Output path must differ from the source image.")
+            return 1
 
-        print_step(f"Reading image: [bold]{os.path.basename(img_path)}[/bold]")
+        output_ext = _normalize_format(os.path.splitext(out_path)[1])
+        raw_output_ext = os.path.splitext(out_path)[1]
+        if raw_output_ext and output_ext != spec.key:
+            print_error(f"Output extension '{escape(raw_output_ext)}' does not match target format '{spec.key}'.")
+            return 1
+
+        if not isinstance(quality, int) or not 1 <= quality <= 100:
+            print_error("Quality must be a whole number between 1 and 100.")
+            return 1
+        try:
+            sorted_sizes = _validate_ico_sizes(sizes) if spec.key == "ico" else []
+        except ValueError as exc:
+            print_error(str(exc))
+            return 1
+
+        out_dir = os.path.dirname(out_path)
+        temporary_path = None
+
+        print_step(f"Reading image: [bold]{escape(os.path.basename(img_path))}[/bold]")
 
         try:
+            if out_dir:
+                os.makedirs(out_dir, exist_ok=True)
             with console.status(f"[bold #10b981]Converting to {spec.label}...[/bold #10b981]"):
                 with Image.open(img_path) as raw:
                     src_fmt = raw.format or "IMG"
-                    src_im = _pick_highest_res_frame(raw)
+                    if src_fmt not in {"ICO", "ICNS"} and getattr(raw, "n_frames", 1) > 1:
+                        print_warning("Source contains multiple frames/pages; only the first will be converted.")
+                    src_im = ImageOps.exif_transpose(_pick_highest_res_frame(raw))
 
                 if spec.key == "ico":
-                    sorted_sizes = sorted(set(s for s in sizes if 8 <= s <= 512)) or list(STANDARD_ICO_SIZES)
                     rgba = src_im.convert("RGBA")
-                    if rgba.width != rgba.height:
-                        side = max(rgba.size)
-                        square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
-                        square.paste(rgba, ((side - rgba.width) // 2, (side - rgba.height) // 2))
-                    else:
-                        square = rgba
-
+                    resampling = getattr(Image, "Resampling", Image).LANCZOS
                     layers = []
                     for s in sorted(sorted_sizes, reverse=True):
-                        layer = square.resize((s, s), Image.Resampling.LANCZOS)
+                        # Pad at output resolution, so a long thin source never
+                        # allocates a source-width-squared intermediate image.
+                        scale = s / max(rgba.size)
+                        fitted_size = (max(1, round(rgba.width * scale)), max(1, round(rgba.height * scale)))
+                        fitted = rgba.resize(fitted_size, resampling)
+                        layer = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+                        layer.paste(fitted, ((s - fitted.width) // 2, (s - fitted.height) // 2))
                         if sharpen and s <= 32:
                             layer = layer.filter(ImageFilter.UnsharpMask(radius=0.8, percent=80, threshold=2))
                         layers.append(layer)
 
-                    layers[0].save(
-                        out_path,
-                        format="ICO",
-                        sizes=[(s, s) for s in sorted_sizes],
-                        append_images=layers[1:],
-                    )
+                    out_im = layers[0]
+                    save_kwargs: dict[str, object] = {
+                        "format": "ICO",
+                        "sizes": [(s, s) for s in sorted_sizes],
+                        "append_images": layers[1:],
+                    }
                     detail_line = f"Sizes:  [bold #FF9800]{', '.join(str(s) for s in sorted_sizes)}[/bold #FF9800]"
                 else:
                     out_im = src_im.convert("RGBA") if spec.supports_alpha else _flatten_rgba_to_rgb(src_im)
-                    save_kwargs: dict[str, object] = {"format": spec.pillow_fmt}
+                    save_kwargs = {"format": spec.pillow_fmt}
                     if spec.supports_quality:
                         save_kwargs["quality"] = quality
-                    out_im.save(out_path, **save_kwargs)
                     detail_line = f"Format: [bold #FF9800]{src_fmt} → {spec.label}[/bold #FF9800]"
                     if spec.supports_quality:
                         detail_line += f"  [dim](q={quality})[/dim]"
 
-            file_size_kb = os.path.getsize(out_path) / 1024
+                # Encode completely beside the target before replacing it. A
+                # failed encoder or interrupted conversion leaves old output intact.
+                with tempfile.NamedTemporaryFile(
+                    mode="w+b", prefix=".ifc-", suffix=spec.ext, dir=out_dir, delete=False,
+                ) as temporary:
+                    temporary_path = temporary.name
+                    out_im.save(temporary, **save_kwargs)
+                    temporary.flush()
+                    os.fsync(temporary.fileno())
+                file_size_kb = os.path.getsize(temporary_path) / 1024
+                os.replace(temporary_path, out_path)
+                temporary_path = None
+
             card = (
                 f"[bold #00FF00]✅ Converted to {spec.label}[/bold #00FF00]\n"
-                f"  [bold #E0E0E0]Out:[/bold #E0E0E0]    [bold #00FF00]{out_path}[/bold #00FF00]\n"
+                f"  [bold #E0E0E0]Out:[/bold #E0E0E0]    [bold #00FF00]{escape(out_path)}[/bold #00FF00]\n"
                 f"  [bold #E0E0E0]{detail_line}[/bold #E0E0E0]  [dim]({file_size_kb:.1f} KB)[/dim]"
             )
             console.print()
             console.print(Panel(card, border_style="#10b981", box=box.ROUNDED, expand=False))
             return 0
         except Exception as e:
-            print_error(f"Conversion failed: {e}")
+            print_error(f"Conversion failed: {escape(str(e))}")
             return 1
+        finally:
+            if temporary_path is not None:
+                try:
+                    os.unlink(temporary_path)
+                except OSError:
+                    pass

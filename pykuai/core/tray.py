@@ -6,6 +6,7 @@ Houses tool engines such as `ifc` and `ytd` under a single clean doubled-letter 
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from typing import Optional
 
 from rich import box
@@ -116,13 +117,19 @@ def print_tool_tray_table(engines: dict[str, BaseEngine], console: Console) -> N
     )
 
 
+@dataclass(frozen=True)
+class _DispatchResult:
+    exit_code: int
+    launched: bool
+
+
 def _dispatch_engine(
     eng: BaseEngine,
     subargs: list[str],
     console: Console,
     interactive: bool,
-) -> int:
-    """Execute a selected tray engine with optional subarguments."""
+) -> _DispatchResult:
+    """Execute a tool, distinguishing help/argument errors from tool completion."""
     if subargs:
         if (
             interactive
@@ -130,7 +137,7 @@ def _dispatch_engine(
             and not subargs[0].startswith("-")
             and hasattr(eng, "launch_with_path")
         ):
-            return eng.launch_with_path(console, subargs[0])
+            return _DispatchResult(eng.launch_with_path(console, subargs[0]), launched=True)
 
         parser = argparse.ArgumentParser(
             prog=f"pykuai tt {eng.name}",
@@ -141,10 +148,11 @@ def _dispatch_engine(
             args = parser.parse_args(subargs)
         except SystemExit as exc:
             code = exc.code
-            return int(code) if isinstance(code, int) else (1 if code else 0)
-        return eng.run_direct(args, console)
+            exit_code = int(code) if isinstance(code, int) else (1 if code else 0)
+            return _DispatchResult(exit_code, launched=False)
+        return _DispatchResult(eng.run_direct(args, console), launched=True)
 
-    return eng.run_interactive(console)
+    return _DispatchResult(eng.run_interactive(console), launched=True)
 
 
 def run_tool_tray(
@@ -154,11 +162,13 @@ def run_tool_tray(
 ) -> int:
     """
     Entry point for `tt`:
-    - `tt` in TTY: opens clickable Tool Tray and launches the chosen tool
+    - `tt` in TTY: keeps the Tool Tray open until its own Close/Esc action
     - `tt` in non-TTY: prints the Tool Tray table
-    - `tt <tool> [args...]`: runs `<tool>` directly under the tray
+    - Console `tt <tool> [args...]`: runs the tool, then returns to the tray
+    - Direct CLI `tt <tool> [args...]`: runs once and returns its exit code
     """
     engines = load_all_engines()
+    exit_code = 0
 
     if cli_args:
         first = cli_args[0]
@@ -175,16 +185,23 @@ def run_tool_tray(
             )
             return 1
 
-        return _dispatch_engine(eng, cli_args[1:], console, interactive=interactive)
+        result = _dispatch_engine(eng, cli_args[1:], console, interactive=interactive)
+        if not interactive or not result.launched:
+            return result.exit_code
+        exit_code = result.exit_code
 
     from pykuai.core.tui import is_interactive_tty
 
     if not is_interactive_tty():
-        print_tool_tray_table(engines, console)
-        return 0
+        if not cli_args:
+            print_tool_tray_table(engines, console)
+        return exit_code
 
-    selected = _build_tt_app(engines).run()
-    if selected is None:
-        return 0
+    # The tray owns navigation: a tool returning must not also close its parent.
+    # Recreate the Textual app each time; finished App instances are not reused.
+    while True:
+        selected = _build_tt_app(engines).run()
+        if selected is None:
+            return 0
 
-    return selected.run_interactive(console)
+        selected.run_interactive(console)

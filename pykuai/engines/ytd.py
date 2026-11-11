@@ -9,12 +9,14 @@ Bilibili, X/Twitter, and 1,000+ extractors with MP4 muxing and MP3/M4A extractio
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlsplit
 
 from rich import box
 from rich.console import Console
@@ -44,27 +46,27 @@ FORMAT_PROFILES: dict[str, FormatProfile] = {
         is_audio=False,
         ffmpeg_expr="bv*+ba/b",
         fallback_expr="b[ext=mp4]/b",
-        extra_args=("--merge-output-format", "mp4"),
+        extra_args=("--merge-output-format", "mp4", "--remux-video", "mp4"),
     ),
     "1080p": FormatProfile(
         key="1080p",
-        label="1080p H.264 MP4",
+        label="1080p MP4 (H.264 preferred)",
         is_audio=False,
-        ffmpeg_expr="bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b",
-        fallback_expr="b[height<=1080][ext=mp4]/b[height<=1080]/b",
-        extra_args=("--merge-output-format", "mp4"),
+        ffmpeg_expr="bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]",
+        fallback_expr="b[height<=1080][ext=mp4]/b[height<=1080]",
+        extra_args=("--merge-output-format", "mp4", "--remux-video", "mp4"),
     ),
     "720p": FormatProfile(
         key="720p",
-        label="720p H.264 MP4",
+        label="720p MP4 (H.264 preferred)",
         is_audio=False,
-        ffmpeg_expr="bv*[height<=720][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=720]+ba/b[height<=720]/b",
-        fallback_expr="b[height<=720][ext=mp4]/b[height<=720]/b",
-        extra_args=("--merge-output-format", "mp4"),
+        ffmpeg_expr="bv*[height<=720][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=720]+ba/b[height<=720]",
+        fallback_expr="b[height<=720][ext=mp4]/b[height<=720]",
+        extra_args=("--merge-output-format", "mp4", "--remux-video", "mp4"),
     ),
     "mp3": FormatProfile(
         key="mp3",
-        label="MP3 Audio (320k)",
+        label="MP3 Audio (Best Quality)",
         is_audio=True,
         ffmpeg_expr="ba/b",
         fallback_expr="ba/b",
@@ -95,23 +97,51 @@ def _normalize_format(fmt: str) -> FormatProfile:
 
 
 def _clean_text(raw: str) -> str:
-    return raw.strip().strip("\"'")
+    clean = raw.strip()
+    if len(clean) >= 2 and clean[0] == clean[-1] and clean[0] in "\"'":
+        return clean[1:-1].strip()
+    return clean
 
 
 def _validate_url(url: str) -> tuple[bool, str]:
     clean = _clean_text(url)
     if not clean:
         return False, ""
-    if not re.match(r"^https?://[^\s/$.?#].[^\s]*$", clean, re.IGNORECASE):
+    if any(c.isspace() or ord(c) < 32 or 127 <= ord(c) <= 159 for c in clean):
         return False, "Invalid URL"
-    low = clean.lower()
-    if "youtube.com" in low or "youtu.be" in low:
+    try:
+        parsed = urlsplit(clean)
+        _ = parsed.port  # Validate the port while parsing the host.
+    except ValueError:
+        return False, "Invalid URL"
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname or "\\" in parsed.netloc:
+        return False, "Invalid URL"
+    host = parsed.hostname.lower().rstrip(".")
+    if host == "youtube.com" or host.endswith(".youtube.com") or host == "youtu.be":
         return True, "✓ YouTube"
-    if "bilibili.com" in low or "b23.tv" in low:
+    if host == "bilibili.com" or host.endswith(".bilibili.com") or host == "b23.tv":
         return True, "✓ Bilibili"
-    if "x.com" in low or "twitter.com" in low:
+    if host in {"x.com", "twitter.com"} or host.endswith((".x.com", ".twitter.com")):
         return True, "✓ X"
     return True, "✓ URL"
+
+
+def _validate_connection_options(cookies_browser: str, cookies_file: str, proxy_url: str) -> str:
+    """Reject unusable arguments before spawning the downloader."""
+    if any(ord(c) < 32 or 127 <= ord(c) <= 159 for value in (cookies_browser, cookies_file, proxy_url) for c in value):
+        return "Cookie and proxy options cannot contain control characters."
+    browser = _clean_text(cookies_browser).lower() or "none"
+    cookie_path = _clean_text(cookies_file)
+    if browser not in {"none", "chrome", "edge", "firefox", "brave"}:
+        return f"Unsupported cookie browser: {browser}"
+    if browser != "none" and cookie_path:
+        return "Choose either browser cookies or a cookies file, not both."
+    if cookie_path and not os.path.isfile(os.path.expanduser(cookie_path)):
+        return f"Cookies file not found: {cookie_path}"
+    return ""
+
+
+_FINAL_FILE_PREFIX = "__PYKUAI_FILE__:"
 
 
 def _build_ytd_studio_app(initial_url: str = ""):
@@ -129,6 +159,41 @@ def _build_ytd_studio_app(initial_url: str = ""):
 
     init_clean = _clean_text(initial_url)
     media_css = CYBER_TUI_CSS + """
+    #studio-card {
+        height: 24;
+        padding: 0 1;
+    }
+    #studio-scroll {
+        height: 1fr;
+        min-height: 1;
+    }
+    .studio-title, .shown-err, .hint-footer {
+        height: auto;
+    }
+    .shown-err {
+        max-height: 3;
+    }
+    Screen.narrow .option-row {
+        layout: grid;
+        grid-size: 2;
+        grid-columns: 1fr;
+        grid-rows: 1;
+        grid-gutter: 0 1;
+        height: auto;
+    }
+    Screen.narrow .option-row .field-label {
+        column-span: 2;
+    }
+    Screen.narrow .option-row ToggleChip {
+        width: 1fr;
+        min-width: 0;
+        margin-right: 0;
+    }
+    .action-bar ActionChip {
+        width: 1fr;
+        min-width: 0;
+        padding: 0 1;
+    }
     Input.cyber-input {
         margin-bottom: 0;
     }
@@ -172,24 +237,24 @@ def _build_ytd_studio_app(initial_url: str = ""):
                         classes="cyber-input",
                     )
 
-                    with Horizontal(classes="compact-tight"):
+                    with Horizontal(classes="compact-tight option-row"):
                         yield Static("Video: ", classes="field-label")
                         yield ToggleChip("Best", value="best", active=True, id="fmt-best")
                         yield ToggleChip("1080p", value="1080p", active=False, id="fmt-1080p")
                         yield ToggleChip("720p", value="720p", active=False, id="fmt-720p")
 
-                    with Horizontal(classes="compact-row"):
+                    with Horizontal(classes="compact-row option-row"):
                         yield Static("Audio: ", classes="field-label")
                         yield ToggleChip("MP3", value="mp3", active=False, id="fmt-mp3")
                         yield ToggleChip("M4A", value="m4a", active=False, id="fmt-m4a")
 
-                    with Horizontal(classes="compact-row"):
+                    with Horizontal(classes="compact-row option-row"):
                         yield Static("Scope:", classes="field-label")
                         yield ToggleChip("Single", value="single", active=True, id="scope-single")
                         yield ToggleChip("Playlist", value="playlist", active=False, id="scope-playlist")
                         yield ToggleChip("Subs", value="subs", active=False, id="opt-subs")
 
-                    with Horizontal(classes="compact-row"):
+                    with Horizontal(classes="compact-row option-row"):
                         yield Static("Cookie:", classes="field-label")
                         yield ToggleChip("None", value="none", active=True, id="ck-none")
                         yield ToggleChip("Chrome", value="chrome", active=False, id="ck-chrome")
@@ -217,9 +282,10 @@ def _build_ytd_studio_app(initial_url: str = ""):
                         f"{ytdlp_lbl} · {ffmpeg_lbl} · {js_lbl}",
                         id="engine-info",
                         classes="hint-footer",
+                        markup=False,
                     )
 
-                yield Static("", id="form-error", classes="hidden-err")
+                yield Static("", id="form-error", classes="hidden-err", markup=False)
 
                 with Horizontal(classes="action-bar"):
                     yield ActionChip("⚡ Run", variant_class="-primary", id="btn-run")
@@ -227,10 +293,14 @@ def _build_ytd_studio_app(initial_url: str = ""):
                     yield ActionChip("✕ Cancel", variant_class="-danger", id="btn-cancel")
 
         def on_mount(self) -> None:
+            self.screen.set_class(self.size.width < 76, "narrow")
             if init_clean:
                 self.query_one("#btn-run", ActionChip).focus()
             else:
                 self.query_one("#url-input", Input).focus()
+
+        def on_resize(self, event) -> None:
+            self.screen.set_class(event.size.width < 76, "narrow")
 
         def _set_error(self, message: str = "") -> None:
             err = self.query_one("#form-error", Static)
@@ -343,13 +413,13 @@ def _build_ytdlp_command(
     cookies_file: str = "",
     proxy_url: str = "",
     list_formats: bool = False,
-    clear_cache: bool = False,
     use_fallback_format: bool = False,
-    fallback_client: bool = False,
 ) -> list[str]:
     """Assemble yt-dlp CLI arguments with JS runtime & EJS solver configuration."""
     cmd = list(runner_cmd)
     cmd.extend([
+        "--ignore-config",
+        "--no-colors",
         "--encoding", "utf-8",
         "--windows-filenames",
         "--no-mtime",
@@ -365,43 +435,42 @@ def _build_ytdlp_command(
     if ffmpeg_bin:
         cmd.extend(["--ffmpeg-location", ffmpeg_bin])
 
-    if clear_cache:
-        cmd.append("--rm-cache-dir")
-
-    if fallback_client:
-        cmd.extend(["--extractor-args", "youtube:player_client=tv_simply,tv,web_safari"])
-
-    if cookies_browser and cookies_browser.lower() != "none":
-        cmd.extend(["--cookies-from-browser", cookies_browser.lower()])
+    cookies_browser = _clean_text(cookies_browser).lower()
+    if cookies_browser and cookies_browser != "none":
+        cmd.extend(["--cookies-from-browser", cookies_browser])
     elif cookies_file:
-        cmd.extend(["--cookies", os.path.abspath(_clean_text(cookies_file))])
+        cmd.extend(["--cookies", os.path.abspath(os.path.expanduser(_clean_text(cookies_file)))])
 
     if proxy_url:
-        cmd.extend(["--proxy", proxy_url])
+        cmd.extend(["--proxy", _clean_text(proxy_url)])
 
     cmd.append("--yes-playlist" if is_playlist else "--no-playlist")
 
     if list_formats:
-        cmd.extend(["-F", url])
+        cmd.extend(["-F", "--", _clean_text(url)])
         return cmd
 
     cmd.extend([
         "--newline",
         "--concurrent-fragments", "4",
-        "-o", os.path.join(save_dir, "%(title)s.%(ext)s"),
+        "--paths", save_dir,
+        "-o", f"%(title).150B [%(id)s] [{profile.key}].%(ext)s",
+        "--print", f"after_move:{_FINAL_FILE_PREFIX}%(filepath)j",
+        "--no-simulate",
+        "--no-quiet",
     ])
 
-    if ffmpeg_bin and not use_fallback_format:
-        cmd.extend(["-f", profile.ffmpeg_expr, *profile.extra_args])
-    elif profile.is_audio and ffmpeg_bin:
-        cmd.extend(["-f", profile.fallback_expr, *profile.extra_args])
-    else:
-        cmd.extend(["-f", profile.fallback_expr])
+    format_expr = profile.ffmpeg_expr if ffmpeg_bin and not use_fallback_format else profile.fallback_expr
+    cmd.extend(["-f", format_expr])
+    if ffmpeg_bin:
+        cmd.extend(profile.extra_args)
 
     if subtitles:
-        cmd.extend(["--write-subs", "--write-auto-subs", "--sub-langs", "en.*,zh.*", "--embed-subs"])
+        cmd.extend(["--write-subs", "--write-auto-subs", "--sub-langs", "en.*,zh.*"])
+        if ffmpeg_bin and not profile.is_audio:
+            cmd.append("--embed-subs")
 
-    cmd.append(url)
+    cmd.extend(["--", _clean_text(url)])
     return cmd
 
 
@@ -421,7 +490,7 @@ class YtdEngine(BaseEngine):
             help="Download profile: best (MP4), 1080p, 720p, mp3 (audio), m4a (audio)",
         )
         parser.add_argument("-p", "--playlist", action="store_true", help="Download full playlist or collection")
-        parser.add_argument("--subs", action="store_true", help="Download & embed English/Chinese subtitles")
+        parser.add_argument("--subs", action="store_true", help="Download English/Chinese subtitles; embed in video when FFmpeg is available")
         parser.add_argument(
             "--cookies-from-browser",
             choices=["none", "chrome", "edge", "firefox", "brave"],
@@ -438,7 +507,7 @@ class YtdEngine(BaseEngine):
         if not url:
             return self.run_interactive(console)
 
-        save_dir = os.path.abspath(_clean_text(getattr(args, "output_dir", ".") or "."))
+        save_dir = os.path.abspath(os.path.expanduser(_clean_text(getattr(args, "output_dir", ".") or ".")))
         if getattr(args, "list_formats", False):
             return self._list_formats(
                 url=url,
@@ -520,7 +589,11 @@ class YtdEngine(BaseEngine):
                 console=console,
             )
 
-        # Fallback prompt path for non-TTY / piped environments
+        if not sys.stdin.isatty():
+            print_error("No interactive input available. Use: pykuai tt ytd <url> [options]")
+            return 1
+
+        # Rich prompt fallback when only stdout is redirected.
         console.print("[bold #FF9800]🎬 ytd (yt-dlp + FFmpeg)[/bold #FF9800]")
         url = _clean_text(initial_url or Prompt.ask("[#10b981]?[/#10b981] Video or playlist URL"))
         if not url:
@@ -570,60 +643,93 @@ class YtdEngine(BaseEngine):
         final_file: Optional[str] = None
         last_pct_bucket = -1
 
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            env=env,
-        )
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                env=env,
+            )
+        except (OSError, ValueError) as exc:
+            message = f"ERROR: Unable to start yt-dlp: {exc}"
+            console.print(f"[bold #FF5252]  {escape(message)}[/bold #FF5252]")
+            return 127, [message], warnings, final_file
 
-        assert process.stdout is not None
-        for line_bytes in iter(process.stdout.readline, b""):
-            line = line_bytes.decode("utf-8", errors="replace").strip()
-            if not line:
-                continue
+        try:
+            assert process.stdout is not None
+            for line_bytes in iter(process.stdout.readline, b""):
+                line = line_bytes.decode("utf-8", errors="replace").strip()
+                # Remote titles must not inject terminal escape/control sequences.
+                line = "".join(c for c in line if (ord(c) >= 32 and not 127 <= ord(c) <= 159) or c == "\t")
+                if not line:
+                    continue
 
-            # Track produced destination filenames cleanly
-            if line.startswith("[Merger] Merging formats into "):
-                final_file = _clean_text(line.split("Merging formats into ", 1)[1])
-            elif line.startswith("[ExtractAudio] Destination: "):
-                final_file = _clean_text(line.split("Destination: ", 1)[1])
-            elif line.startswith("[download] Destination: "):
-                final_file = _clean_text(line.split("Destination: ", 1)[1])
-            elif line.startswith("[download] ") and " has already been downloaded" in line:
-                final_file = _clean_text(line[len("[download] ") :].split(" has already been downloaded", 1)[0])
+                if line.startswith(_FINAL_FILE_PREFIX):
+                    try:
+                        path = json.loads(line[len(_FINAL_FILE_PREFIX):])
+                        if isinstance(path, str):
+                            final_file = path
+                    except (ValueError, TypeError):
+                        pass
+                    continue
 
-            if line.startswith("ERROR:"):
-                if line not in errors:
-                    errors.append(line)
-                    console.print(f"[bold #FF5252]  {escape(line)}[/bold #FF5252]")
-                continue
+                if line.startswith("ERROR:"):
+                    if line not in errors:
+                        errors.append(line)
+                        console.print(f"  {line}", style="bold #FF5252", markup=False, highlight=False)
+                    continue
 
-            if line.startswith("WARNING:"):
-                warnings.append(line)
-                if "No title found" not in line:
-                    console.print(f"[#FF9800]  {line}[/#FF9800]")
-                continue
+                if line.startswith("WARNING:"):
+                    if line not in warnings:
+                        warnings.append(line)
+                    if "No title found" not in line:
+                        console.print(f"  {line}", style="#FF9800", markup=False, highlight=False)
+                    continue
 
-            if verbose_all:
-                console.print(line, markup=False)
-                continue
+                if verbose_all:
+                    console.print(line, markup=False, highlight=False)
+                    continue
 
-            if line.startswith("[download]"):
-                pct_match = re.search(r"(\d+(?:\.\d+)?)%", line)
-                if pct_match and "100%" not in line and "in 00:" not in line:
-                    bucket = int(float(pct_match.group(1)) // 20)
-                    if bucket == last_pct_bucket:
-                        continue
-                    last_pct_bucket = bucket
-                elif "Destination:" in line or "100%" in line:
-                    last_pct_bucket = -1
-                console.print(f"[#10b981]  {line}[/#10b981]", markup=False)
-            elif line.startswith(("[Merger]", "[ExtractAudio]", "[EmbedSubtitle]", "[info]", "[youtube] [jsc:")):
-                console.print(f"[#38BDF8]  {line}[/#38BDF8]", markup=False)
+                if line.startswith("[download]"):
+                    pct_match = re.search(r"(\d+(?:\.\d+)?)%", line)
+                    if "Destination:" in line:
+                        last_pct_bucket = -1
+                    elif pct_match:
+                        bucket = int(float(pct_match.group(1)) // 20)
+                        if bucket == last_pct_bucket and bucket < 5:
+                            continue
+                        last_pct_bucket = bucket
+                    console.print(f"  {line}", style="#10b981", markup=False, highlight=False)
+                elif line.startswith(("[Merger]", "[VideoRemuxer]", "[ExtractAudio]", "[EmbedSubtitle]", "[info]", "[youtube] [jsc:")):
+                    console.print(f"  {line}", style="#38BDF8", markup=False, highlight=False)
 
-        process.wait()
+            process.wait()
+        except KeyboardInterrupt:
+            console.print("\nDownload cancelled.", style="dim")
+            return 130, errors, warnings, final_file
+        except OSError as exc:
+            message = f"ERROR: Reading yt-dlp output failed: {exc}"
+            errors.append(message)
+            console.print(message, style="bold #FF5252", markup=False, highlight=False)
+            return 1, errors, warnings, final_file
+        finally:
+            # Also runs on SystemExit from the CLI's signal handler.
+            try:
+                if process.poll() is None:
+                    try:
+                        process.terminate()
+                    except OSError:
+                        pass  # The process may have exited between poll and terminate.
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+            finally:
+                if process.stdout is not None:
+                    process.stdout.close()
+
         return process.returncode, errors, warnings, final_file
 
     def _print_diagnostics(self, errors: list[str], js_runtimes: list[tuple[str, str]], console: Console) -> bool:
@@ -687,6 +793,17 @@ class YtdEngine(BaseEngine):
         proxy_url: str,
         console: Console,
     ) -> int:
+        url = _clean_text(url)
+        valid, message = _validate_url(url)
+        if not valid:
+            print_error(message or "Invalid URL")
+            return 1
+
+        option_error = _validate_connection_options(cookies_browser, cookies_file, proxy_url)
+        if option_error:
+            print_error(escape(option_error))
+            return 1
+
         runner = resolve_ytdlp_runner()
         if not runner:
             print_error("yt-dlp is not available. Run `pykuai pp -y` to install `yt-dlp`.")
@@ -696,7 +813,7 @@ class YtdEngine(BaseEngine):
         ffmpeg_bin = get_ffmpeg()
         js_runtimes = get_js_runtimes()
 
-        print_step(f"Probing streams via [bold #00FF00]yt-dlp {ytdlp_ver}[/bold #00FF00]: [bold]{url}[/bold]")
+        print_step(f"Probing streams via [bold #00FF00]yt-dlp {escape(ytdlp_ver)}[/bold #00FF00]: [bold]{escape(url)}[/bold]")
         cmd = _build_ytdlp_command(
             runner_cmd,
             url,
@@ -711,6 +828,8 @@ class YtdEngine(BaseEngine):
             list_formats=True,
         )
         rc, errors, _, _ = self._run_subprocess(cmd, console, verbose_all=True)
+        if rc == 130:
+            return rc
         if rc != 0:
             self._print_diagnostics(errors, js_runtimes, console)
             return 1
@@ -728,6 +847,17 @@ class YtdEngine(BaseEngine):
         proxy_url: str,
         console: Console,
     ) -> int:
+        url = _clean_text(url)
+        valid, message = _validate_url(url)
+        if not valid:
+            print_error(message or "Invalid URL")
+            return 1
+
+        option_error = _validate_connection_options(cookies_browser, cookies_file, proxy_url)
+        if option_error:
+            print_error(escape(option_error))
+            return 1
+
         runner = resolve_ytdlp_runner()
         if not runner:
             print_error("yt-dlp not found. Run `pykuai pp` (Pull Packages) to install `yt-dlp`.")
@@ -741,17 +871,21 @@ class YtdEngine(BaseEngine):
         if profile.is_audio and not ffmpeg_bin:
             print_error("FFmpeg is required for MP3/M4A audio extraction. Check `pykuai/tools/` or PATH.")
             return 1
+        if not ffmpeg_bin:
+            print_warning("FFmpeg is unavailable; downloading a combined stream in its original container.")
+        if subtitles and (not ffmpeg_bin or profile.is_audio):
+            print_info("Subtitles will be saved as separate files for this profile.")
 
-        os.makedirs(save_dir, exist_ok=True)
         rt_desc = ", ".join(r for r, _ in js_runtimes) if js_runtimes else "none"
         print_step(
             f"Fetching via [bold #00FF00]yt-dlp {ytdlp_ver}[/bold #00FF00] "
             f"[dim](JS: {rt_desc}, FFmpeg: {'yes' if ffmpeg_bin else 'no'})[/dim]"
         )
-        print_info(f"Target: [bold]{url}[/bold]")
+        print_info(f"Target: [bold]{escape(url)}[/bold]")
         print_info(f"Profile: [bold #00FF00]{profile.label}[/bold #00FF00]")
 
         try:
+            os.makedirs(save_dir, exist_ok=True)
             cmd = _build_ytdlp_command(
                 runner_cmd,
                 url,
@@ -766,8 +900,10 @@ class YtdEngine(BaseEngine):
                 proxy_url=proxy_url,
             )
             rc, errors, _, final_file = self._run_subprocess(cmd, console)
+            if rc == 130:
+                return rc
 
-            # Safe 1-shot retry for transient CDN 403 / stale extractor cache / format incompatibility
+            # Retry once with a combined stream, preserving format constraints.
             if rc != 0:
                 joined_err = "\n".join(errors).lower()
                 is_auth_gate = "sign in to confirm" in joined_err or "login_required" in joined_err
@@ -776,7 +912,7 @@ class YtdEngine(BaseEngine):
                     for tok in ("http error 403", "requested format is not available", "signature solving failed")
                 )
                 if not is_auth_gate and transient_fail:
-                    print_warning("Transient stream error — clearing yt-dlp cache and retrying compatible stream...")
+                    print_warning("Stream error — retrying a compatible stream once...")
                     retry_cmd = _build_ytdlp_command(
                         runner_cmd,
                         url,
@@ -789,26 +925,26 @@ class YtdEngine(BaseEngine):
                         cookies_browser=cookies_browser,
                         cookies_file=cookies_file,
                         proxy_url=proxy_url,
-                        clear_cache=True,
                         use_fallback_format=True,
-                        fallback_client=True,
                     )
                     rc, retry_errors, _, retry_file = self._run_subprocess(retry_cmd, console)
                     errors = retry_errors or errors
                     final_file = retry_file or final_file
+                    if rc == 130:
+                        return rc
 
             if rc == 0:
                 size_line = ""
                 if final_file and os.path.isfile(final_file):
                     size_mb = os.path.getsize(final_file) / (1024 * 1024)
-                    size_line = f"  [bold #E0E0E0]File:[/bold #E0E0E0]   [bold #00FF00]{final_file}[/bold #00FF00] [dim]({size_mb:.2f} MB)[/dim]\n"
+                    size_line = f"  [bold #E0E0E0]File:[/bold #E0E0E0]   [bold #00FF00]{escape(final_file)}[/bold #00FF00] [dim]({size_mb:.2f} MB)[/dim]\n"
                 else:
-                    size_line = f"  [bold #E0E0E0]Dir:[/bold #E0E0E0]    [dim]{save_dir}[/dim]\n"
+                    size_line = f"  [bold #E0E0E0]Dir:[/bold #E0E0E0]    [dim]{escape(save_dir)}[/dim]\n"
                 card = (
                     "[bold #00FF00]✅ Saved[/bold #00FF00]\n"
                     f"{size_line}"
                     f"  [bold #E0E0E0]Mode:[/bold #E0E0E0]   [bold #FF9800]{profile.label}[/bold #FF9800]  "
-                    f"[dim](yt-dlp {ytdlp_ver} · FFmpeg)[/dim]"
+                    f"[dim](yt-dlp {escape(ytdlp_ver)} · {'FFmpeg' if ffmpeg_bin else 'native stream'})[/dim]"
                 )
                 console.print()
                 console.print(Panel(card, border_style="#10b981", box=box.ROUNDED, expand=False))
@@ -818,5 +954,5 @@ class YtdEngine(BaseEngine):
             print_error("Media fetch failed. See details above." if has_hint else "Media fetch failed.")
             return 1
         except Exception as exc:
-            print_error(f"Media engine execution failed: {exc}")
+            print_error(f"Media engine execution failed: {escape(str(exc))}")
             return 1
