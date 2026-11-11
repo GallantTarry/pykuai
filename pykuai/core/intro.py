@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 PyKuai Desktop Snake Slither-in Overlay
-像素青蛇从 PowerShell 窗口外侧桌面上游走，精准爬向窗口左上角图标位置并激起绿光脉冲，
-将 Windows PowerShell 标题与图标瞬间激活为 pykuai。
+Animated pixel snake slithering from outside the terminal window onto the top-left
+tab icon, pulsing with neon green energy and applying the PyKuai terminal identity.
 """
 import os
 import sys
@@ -18,11 +18,11 @@ from pykuai.core.ui import apply_terminal_identity
 
 
 def find_terminal_window():
-    """精确获取当前前台激活的终端窗口句柄 (Windows Terminal 或 Console)"""
+    """Locate the active foreground terminal window handle (Windows Terminal or Console)."""
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
 
-    # 1. 优先获取当前前台活跃窗口
+    # 1. Prefer the current foreground active window
     fg = user32.GetForegroundWindow()
     if fg and user32.IsWindowVisible(fg):
         buf = ctypes.create_unicode_buffer(256)
@@ -34,7 +34,7 @@ def find_terminal_window():
         title = buf.value.lower()
         if any(k in title for k in ["powershell", "cmd", "terminal", "pykuai"]):
             return fg
-        # 检查祖先顶层窗口
+        # Check top-level ancestor window
         GA_ROOT = 2
         root = user32.GetAncestor(fg, GA_ROOT)
         if root and user32.IsWindowVisible(root):
@@ -42,12 +42,12 @@ def find_terminal_window():
             if buf.value in ["CASCADIA_HOSTING_WINDOW_CLASS", "ConsoleWindowClass"]:
                 return root
 
-    # 2. 获取当前控制台窗口句柄
+    # 2. Fallback to current console window handle
     c_hwnd = kernel32.GetConsoleWindow()
     if c_hwnd and user32.IsWindowVisible(c_hwnd):
         return c_hwnd
 
-    # 3. 遍历查找可见的 Windows Terminal (CASCADIA_HOSTING_WINDOW_CLASS) 或 控制台
+    # 3. Enumerate visible Windows Terminal or Console windows
     candidates = []
 
     def enum_cb(h, _):
@@ -68,7 +68,7 @@ def find_terminal_window():
 
 
 def get_visual_window_rect(hwnd):
-    """获取剔除 DWM 隐形阴影后的真实可视物理窗口边界 (支持 Win10/11)"""
+    """Get visual physical bounds excluding invisible DWM shadow borders (Win10/11)."""
     user32 = ctypes.windll.user32
     dwmapi = ctypes.windll.dwmapi
     rect = wintypes.RECT()
@@ -80,7 +80,7 @@ def get_visual_window_rect(hwnd):
 
 
 class DesktopSnakeOverlay(QWidget):
-    """跨越 Windows 桌面与终端边界、精准奔向左上角标签图标的像素小蛇动画"""
+    """Transparent desktop overlay animating the pixel snake toward the top-left tab icon."""
     def __init__(self, target_hwnd=None):
         super().__init__()
         self.target_hwnd = target_hwnd
@@ -92,7 +92,7 @@ class DesktopSnakeOverlay(QWidget):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
-        # 覆盖全屏幕桌面 (支持虚拟多显示器边界)
+        # Cover full virtual desktop across multi-monitor setups
         screen = QApplication.primaryScreen()
         v_geo = screen.virtualGeometry() if screen else QApplication.primaryScreen().geometry()
         self.setGeometry(v_geo)
@@ -101,8 +101,8 @@ class DesktopSnakeOverlay(QWidget):
 
     def detect_terminal_rect(self):
         """
-        探测当前 PowerShell / Windows Terminal 窗口与顶栏第一标签图标的真实坐标
-        严谨适配 Windows 10/11 系统的 High-DPI 缩放（如 125%、150%、200%）
+        Detect PowerShell / Windows Terminal window rect and first-tab icon target,
+        calibrated for Windows High-DPI scaling (100%, 125%, 150%, 200%).
         """
         user32 = ctypes.windll.user32
         hwnd = self.target_hwnd or find_terminal_window()
@@ -121,16 +121,14 @@ class DesktopSnakeOverlay(QWidget):
             phys_h = rect.bottom - rect.top
 
             if is_maximized:
-                # 窗口全屏最大化状态：顶边与左边对齐屏幕原点
                 self.term_x = 0
                 self.term_y = 0
                 self.term_w = self.screen_w
                 self.term_h = self.screen_h
-                # 全屏时第一标签图标在 Qt 逻辑像素下的精确位置
                 self.target_x = 20.0
                 self.target_y = 16.0
             else:
-                # 将 Win32 物理像素除以 dpr 转换为 Qt 逻辑像素，彻底解决 150% 缩放下位置偏移问题！
+                # Convert Win32 physical pixels into Qt logical pixels
                 self.term_x = phys_left / dpr
                 self.term_y = phys_top / dpr
                 self.term_w = phys_w / dpr
@@ -139,11 +137,9 @@ class DesktopSnakeOverlay(QWidget):
                 buf = ctypes.create_unicode_buffer(256)
                 user32.GetClassNameW(hwnd, buf, 256)
                 if buf.value == "ConsoleWindowClass":
-                    # 经典控制台标题栏图标中心
                     self.target_x = self.term_x + 16.0
                     self.target_y = self.term_y + 14.0
                 else:
-                    # Windows Terminal 顶栏第一个 Tab 图标中心 (贴合标签栏)
                     self.target_x = self.term_x + 20.0
                     self.target_y = self.term_y + 16.0
         else:
@@ -154,7 +150,7 @@ class DesktopSnakeOverlay(QWidget):
             self.target_x = self.term_x + 20.0
             self.target_y = self.term_y + 16.0
 
-        # 蛇的起点：严格设定在终端窗口外侧桌面上 (窗口左下方外侧桌面)
+        # Snake spawn point outside the lower-left edge of the terminal window
         if self.term_x > 120:
             self.start_x = self.term_x - 100
             self.start_y = min(self.screen_h - 100, self.term_y + 180)
@@ -164,11 +160,10 @@ class DesktopSnakeOverlay(QWidget):
 
     def init_animation(self):
         self.frame = 0
-        self.total_frames = 65  # 约 1.0 秒，极速流畅
+        self.total_frames = 65  # ~1.0 second fast animation
         self.snake_length = 18
         self.body_points = []
 
-        # 左上角融合脉冲波参数
         self.pulse_active = False
         self.pulse_radius = 0
         self.pulse_max = 60
@@ -181,7 +176,7 @@ class DesktopSnakeOverlay(QWidget):
         self.frame += 1
         progress = self.frame / self.total_frames
 
-        # 贝塞尔平滑轨迹：桌面外部起点 -> 贴着窗口左缘向上游动 -> 钻入左上角图标区域
+        # Smooth cubic Bezier path into the top-left tab icon
         t = min(1.0, progress * 1.25)
         u = 1.0 - t
         tt = t * t
@@ -197,7 +192,7 @@ class DesktopSnakeOverlay(QWidget):
         hx = uuu * p0[0] + 3 * uu * t * p1[0] + 3 * u * tt * p2[0] + ttt * p3[0]
         hy = uuu * p0[1] + 3 * uu * t * p1[1] + 3 * u * tt * p2[1] + ttt * p3[1]
 
-        # 正弦蛇行摆动
+        # Sinusoidal slither wave
         wiggle = math.sin(self.frame * 0.5) * 5 * max(0.1, 1.0 - t * 0.8)
         angle = math.atan2(p3[1] - hy, p3[0] - hx) if t < 0.95 else 0
         perp_x = -math.sin(angle) * wiggle
@@ -208,7 +203,7 @@ class DesktopSnakeOverlay(QWidget):
         if len(self.body_points) > self.snake_length:
             self.body_points.pop()
 
-        # 靠近左上角时，触发变身光芒并即刻注入 Windows 终端图标与标题
+        # Trigger glow pulse and apply terminal icon/title on arrival
         if progress >= 0.7:
             if not self.pulse_active:
                 self.pulse_active = True
@@ -224,11 +219,9 @@ class DesktopSnakeOverlay(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, False)  # 保持硬核复古点阵像素
+        painter.setRenderHint(QPainter.Antialiasing, False)
 
-        # 注：根据用户明确要求，已彻底删除导航栏外侧虚线高亮框
-
-        # 1. 钻入左上角激起的代码脉冲波
+        # 1. Impact pulse ring at top-left icon
         if self.pulse_active:
             alpha = int(max(0, 240 * (1.0 - (self.pulse_radius / self.pulse_max))))
             if alpha > 0:
@@ -236,12 +229,11 @@ class DesktopSnakeOverlay(QWidget):
                 painter.setPen(pen_pulse)
                 painter.drawEllipse(QPointF(self.target_x, self.target_y), self.pulse_radius, self.pulse_radius)
 
-                # 伴随光芒文字
                 painter.setPen(QColor(255, 152, 0, alpha))
                 painter.setFont(QFont("Consolas", 10, QFont.Bold))
                 painter.drawText(int(self.target_x + 30), int(self.target_y + 5), "⚡ PYKUAI ⚡")
 
-        # 2. 绘制像素蛇身
+        # 2. Pixel snake body
         if not self.body_points:
             return
 
@@ -257,11 +249,10 @@ class DesktopSnakeOverlay(QWidget):
             py = int(pt[1] - cur_size // 2)
             painter.fillRect(px, py, cur_size, cur_size, color)
 
-            # 像素边缘发光
             painter.setPen(QColor(57, 255, 20, 180))
             painter.drawRect(px, py, cur_size, cur_size)
 
-        # 3. 绘制蛇头与粉舌
+        # 3. Snake head & tongue
         head = self.body_points[0]
         hx, hy = head[0], head[1]
         head_size = 18
@@ -272,11 +263,11 @@ class DesktopSnakeOverlay(QWidget):
         painter.setPen(QColor(16, 185, 129))
         painter.drawRect(h_px, h_py, head_size, head_size)
 
-        # 黑色像素眼
+        # Black pixel eyes
         painter.fillRect(int(hx - 4), int(hy - 5), 4, 4, QColor(0, 0, 0))
         painter.fillRect(int(hx + 2), int(hy - 5), 4, 4, QColor(0, 0, 0))
 
-        # 俏皮粉舌 (向着目标吐信)
+        # Pixel tongue
         if (self.frame // 3) % 2 == 0:
             tongue_color = QColor(255, 101, 132)  # #FF6584
             painter.fillRect(int(hx - 2), int(hy - head_size // 2 - 6), 4, 6, tongue_color)
@@ -301,8 +292,7 @@ class DesktopSnakeOverlay(QWidget):
 
 
 def play_cinematic_intro() -> None:
-    """启动像素小蛇自桌面游向 PowerShell 左上角标签图标的开机动画"""
-    # 在初始化 Qt 前立即锁定终端窗口句柄
+    """Launch the desktop pixel snake intro animation targeting the terminal tab icon."""
     target_hwnd = find_terminal_window()
 
     app = QApplication.instance()

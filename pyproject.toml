@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pykuai"
 version = "1.2.7"
-description = "PyKuai - 现代化极客暗黑终端脚本工作台 (Modular Cyber-Dark Script Workbench)"
+description = "PyKuai - Modular Cyber-Dark CLI Script Workbench"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [

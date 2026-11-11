@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 PyKuai Terminal Icon Lifecycle Watchdog
-守护进程：在后台等待主控制台进程退出（无论是正常退出、Ctrl+C、崩溃，还是用户点击 [X] 强行关闭窗口），
-一旦主进程结束，瞬间（5毫秒内）自动还原 Windows Terminal 的配置文件，
-彻底确保日常普通 PowerShell 不留存任何小蛇图标！
+Background daemon that waits for the parent console process to exit (normal exit,
+Ctrl+C, crash, or clicking [X]) and immediately restores Windows Terminal settings.json
+so default PowerShell tabs never retain temporary icon overrides.
 """
 import os
 import sys
@@ -21,7 +21,7 @@ def main():
     except Exception:
         return
 
-    # 等待宿主 pykuai 进程结束
+    # Wait for the host pykuai process to terminate
     SYNCHRONIZE = 0x00100000
     kernel32 = ctypes.windll.kernel32
     handle = kernel32.OpenProcess(SYNCHRONIZE, False, parent_pid)
@@ -29,7 +29,7 @@ def main():
         kernel32.WaitForSingleObject(handle, 0xFFFFFFFF)
         kernel32.CloseHandle(handle)
 
-    # 宿主进程已结束！立即还原 settings.json，移除任何临时 icon 绑定
+    # Restore settings.json by removing any temporary icon injection
     try:
         if os.path.exists(settings_path):
             with open(settings_path, "r", encoding="utf-8-sig") as f:
@@ -38,6 +38,7 @@ def main():
             profiles_list = data.get("profiles", {}).get("list", [])
             for p in profiles_list:
                 pname = p.get("name", "")
+                # Include localized Chinese profile name for Windows compatibility
                 if pname in ["Windows PowerShell", "PowerShell", "命令提示符", "Command Prompt"]:
                     if "icon" in p:
                         del p["icon"]

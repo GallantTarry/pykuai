@@ -10,14 +10,11 @@ from pathlib import Path
 from pykuai.core.base import BaseEngine
 
 _ENGINES_CACHE: dict[str, BaseEngine] = {}
-_ALIASES_MAP: dict[str, str] = {}
 
 
 def load_all_engines() -> dict[str, BaseEngine]:
-    """
-    自动扫描 engines/ 目录下的所有模块，实例化并注册 BaseEngine 派生类。
-    """
-    global _ENGINES_CACHE, _ALIASES_MAP
+    """Scan engines/ directory, instantiate and register all BaseEngine subclasses."""
+    global _ENGINES_CACHE
     if _ENGINES_CACHE:
         return _ENGINES_CACHE
 
@@ -25,7 +22,7 @@ def load_all_engines() -> dict[str, BaseEngine]:
     if not engines_dir.exists():
         return {}
 
-    for file_path in engines_dir.glob("*.py"):
+    for file_path in sorted(engines_dir.glob("*.py")):
         if file_path.name.startswith("__"):
             continue
 
@@ -37,7 +34,7 @@ def load_all_engines() -> dict[str, BaseEngine]:
                 sys.modules[module_name] = module
                 spec.loader.exec_module(module)
 
-                # 寻找该模块中所有继承自 BaseEngine 的非抽象类
+                # Discover all concrete subclasses of BaseEngine in this module
                 for attr_name in dir(module):
                     attr = getattr(module, attr_name)
                     if (
@@ -47,34 +44,34 @@ def load_all_engines() -> dict[str, BaseEngine]:
                         and getattr(attr, "name", "")
                     ):
                         engine_inst = attr()
+                        if engine_inst.name in _ENGINES_CACHE:
+                            from pykuai.core.ui import console
+                            console.print(
+                                f"[dim yellow]⚠️ Duplicate command '{engine_inst.name}' "
+                                f"in [{file_path.stem}] skipped.[/dim yellow]"
+                            )
+                            continue
                         _ENGINES_CACHE[engine_inst.name] = engine_inst
-                        for alias in getattr(engine_inst, "aliases", []):
-                            _ALIASES_MAP[alias] = engine_inst.name
         except Exception as e:
-            # 容错：个别引擎加载失败不应拖垮整个 CLI
+            # Isolate engine loading failures so a broken script never crashes the CLI
             from pykuai.core.ui import console
-            console.print(f"[dim yellow]⚠️ 引擎 [{file_path.stem}] 加载跳过: {e}[/dim yellow]")
+            console.print(f"[dim yellow]⚠️ Skipped engine [{file_path.stem}]: {e}[/dim yellow]")
 
     return _ENGINES_CACHE
 
 
 def get_engine(identifier: str) -> BaseEngine | None:
-    """根据名称或别名查找引擎"""
+    """Look up an engine by its unique command name."""
     engines = load_all_engines()
-    if identifier in engines:
-        return engines[identifier]
-    if identifier in _ALIASES_MAP:
-        real_name = _ALIASES_MAP[identifier]
-        return engines.get(real_name)
-    return None
+    return engines.get(identifier)
 
 
 def get_categories() -> dict[str, list[BaseEngine]]:
-    """将所有引擎按类别分组"""
+    """Group all registered engines by category."""
     engines = load_all_engines()
     categories: dict[str, list[BaseEngine]] = {}
     for engine in engines.values():
-        cat = getattr(engine, "category", "通用")
+        cat = getattr(engine, "category", "General")
         if cat not in categories:
             categories[cat] = []
         categories[cat].append(engine)

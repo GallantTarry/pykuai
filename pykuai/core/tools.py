@@ -9,16 +9,16 @@ from pathlib import Path
 
 def get_tool_path(tool_name: str) -> str | None:
     """
-    智能搜索二进制工具路径：
-    1. pykuai 安装目录下的 tools/
-    2. 系统 PATH 环境变量
-    3. 用户主目录 ~/.pykuai/tools/
-    4. 本地旧版项目路径回退
+    Locate bundled or system binary tools in priority order:
+    1. Package-local tools/ directory
+    2. System PATH environment variable
+    3. User home ~/.pykuai/tools/
+    4. Development fallback path
     """
     ext = ".exe" if os.name == "nt" else ""
     target_names = [f"{tool_name}{ext}", f"{tool_name.lower()}{ext}", f"{tool_name.upper()}{ext}"]
 
-    # 1. 优先检测当前包内置 tools 目录
+    # 1. Package built-in tools directory
     current_dir = Path(__file__).resolve().parent
     local_tools_dir = current_dir.parent / "tools"
     for name in target_names:
@@ -26,19 +26,19 @@ def get_tool_path(tool_name: str) -> str | None:
         if p.exists() and p.is_file():
             return str(p)
 
-    # 2. 系统 PATH 检测
+    # 2. System PATH lookup
     system_path = shutil.which(tool_name)
     if system_path:
         return system_path
 
-    # 3. 用户目录 ~/.pykuai/tools
+    # 3. User directory ~/.pykuai/tools
     user_tools_dir = Path.home() / ".pykuai" / "tools"
     for name in target_names:
         p = user_tools_dir / name
         if p.exists() and p.is_file():
             return str(p)
 
-    # 4. 回退开发调试目录 (GitHub pyside6-pykuai-app)
+    # 4. Development fallback directory
     fallback_dir = Path.home() / "Documents" / "GitHub" / "pyside6-pykuai-app" / "PyKuai" / "tools"
     for name in target_names:
         p = fallback_dir / name

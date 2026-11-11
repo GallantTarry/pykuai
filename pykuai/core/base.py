@@ -9,33 +9,25 @@ from rich.console import Console
 
 class BaseEngine(ABC):
     """
-    所有插拔式脚本引擎的基类规范。
-    引擎放入 engines/ 目录后会被自动注册。
+    Base class specification for all plug-in script engines.
+    Any engine placed in engines/ is automatically discovered and registered.
     """
     name: str = ""
-    aliases: list[str] = []
     description: str = ""
-    category: str = "通用办公"
+    usage: str = ""
+    category: str = "General"
 
     @abstractmethod
     def register_args(self, parser: argparse.ArgumentParser) -> None:
-        """
-        在直接命令模式下，为子命令注册命令行参数。
-        """
+        """Register CLI arguments for direct command execution."""
         pass
 
     @abstractmethod
     def run_direct(self, args: argparse.Namespace, console: Console) -> int:
-        """
-        一击脱离模式 (Direct Command):
-        接收解析后的命令行参数并执行，返回状态码 (0 表示成功)。
-        """
+        """Direct mode: execute with parsed CLI arguments and return exit code (0 for success)."""
         pass
 
     @abstractmethod
     def run_interactive(self, console: Console) -> int:
-        """
-        沉浸式终端模式 (Interactive Console):
-        通过 rich 交互式提问获取参数并执行，返回状态码 (0 表示成功)。
-        """
+        """Interactive mode: prompt for inputs via Rich console and return exit code (0 for success)."""
         pass

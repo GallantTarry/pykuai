@@ -7,7 +7,7 @@ import sys
 import time
 import shutil
 
-# 强制终端输出为 UTF-8 编码，防止 Windows 默认 GBK 报错
+# Force UTF-8 terminal output to prevent Windows CP1252/GBK encoding errors
 if hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -23,9 +23,7 @@ from rich.table import Table
 from rich import box
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeRemainingColumn
 
-from pykuai.core.i18n import t
-
-# 极客暗黑主题 (Cyber-Dark Theme)
+# Cyber-Dark Theme
 CYBER_THEME = Theme({
     "brand.orange": "#FF9800",
     "terminal.green": "#00FF00",
@@ -42,12 +40,11 @@ console = Console(theme=CYBER_THEME, legacy_windows=False)
 
 
 def get_banner() -> str:
-    """动态生成双语点阵 Banner"""
-    author_label = t("author_label")
+    """Render Cyber-Dark ASCII Banner."""
     return (
         "[bold #00FF00]██████╗ ██╗   ██╗██╗  ██╗██╗   ██╗ █████╗ ██╗[/]\n"
         "[bold #00FF00]██╔══██╗╚██╗ ██╔╝██║ ██╔╝██║   ██║██╔══██╗██║[/]   [bold #FF9800]v1.2.7[/bold #FF9800]\n"
-        f"[bold #10b981]██████╔╝ ╚████╔╝ █████═╝ ██║   ██║███████║██║[/]   [dim]{author_label}:[/dim] [bold #FF9800]土块[/bold #FF9800] | [bold #10b981]GallantTarry[/bold #10b981]\n"
+        "[bold #10b981]██████╔╝ ╚████╔╝ █████═╝ ██║   ██║███████║██║[/]   [dim]Author:[/dim] [bold #FF9800]TuKuai[/bold #FF9800] | [bold #10b981]GallantTarry[/bold #10b981]\n"
         "[bold #10b981]██╔═══╝   ╚██╔╝  ██╔═██╗ ██║   ██║██╔══██║██║[/]   [italic #FF9800]\"The Lord is my shepherd.\"[/italic #FF9800]\n"
         "[bold #047857]██║        ██║   ██║  ██╗╚██████╔╝██║  ██║██║[/]\n"
         "[bold #047857]╚═╝        ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝[/]"
@@ -59,7 +56,7 @@ _wt_settings_path = None
 
 
 def _spawn_watchdog(settings_path: str):
-    """启动外部独立看门狗进程：一旦主控制台死掉（包括用户直接叉掉窗口），5毫秒内自动洗净配置文件"""
+    """Spawn a detached watchdog process to clean up settings.json on unexpected exit."""
     global _watchdog_spawned
     if _watchdog_spawned:
         return
@@ -79,15 +76,15 @@ def _spawn_watchdog(settings_path: str):
 
 def apply_terminal_identity(title: str = "pykuai"):
     """
-    动态注入终端身份标识：
-    1. 刷新标签页与窗口标题为 pykuai
-    2. 加载高分多分辨率 icon.ico 并注入 Win32 终端原生窗口图标以及 Windows Terminal 标签图标
-    3. 启动后台自毁看门狗，确保无论正常退出还是强关窗口，都 100% 自动还原默认终端图标！
+    Inject dynamic terminal identity:
+    1. Set tab and window title to 'pykuai'
+    2. Apply multi-res icon.ico to Win32 console and Windows Terminal tab
+    3. Start background watchdog to guarantee clean settings.json restoration on exit
     """
     global _wt_settings_path
     import ctypes
 
-    # 1. 设置当前标签页标题
+    # 1. Set terminal title
     try:
         sys.stdout.write(f"\033]0;{title}\007")
         sys.stdout.flush()
@@ -99,7 +96,7 @@ def apply_terminal_identity(title: str = "pykuai"):
     if not os.path.exists(ico_path):
         return
 
-    # 2. 注入 Windows Terminal 标签图标 (配合看门狗，安全无残留)
+    # 2. Inject Windows Terminal tab icon (guarded by watchdog)
     try:
         import json
         wt_paths = [
@@ -127,7 +124,7 @@ def apply_terminal_identity(title: str = "pykuai"):
     except Exception:
         pass
 
-    # 3. 注入 Win32 原生控制台窗口图标 (conhost)
+    # 3. Inject Win32 native console window icon (conhost)
     try:
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
@@ -148,14 +145,14 @@ def apply_terminal_identity(title: str = "pykuai"):
 
 def restore_terminal_identity(original_title: str = "Windows PowerShell"):
     """
-    程序退出或中断时彻底还原终端状态：
-    1. 还原 Windows Terminal 配置文件中的图标（删除临时 icon 字段）
-    2. 还原终端标题为原始名称
+    Restore terminal state on exit or interruption:
+    1. Remove temporary icon override from Windows Terminal settings.json
+    2. Restore terminal window title
     """
     global _wt_settings_path
     import ctypes
 
-    # 1. 还原终端标题
+    # 1. Restore terminal title
     try:
         sys.stdout.write(f"\033]0;{original_title}\007")
         sys.stdout.flush()
@@ -163,7 +160,7 @@ def restore_terminal_identity(original_title: str = "Windows PowerShell"):
     except Exception:
         pass
 
-    # 2. 立即还原 Windows Terminal 配置文件
+    # 2. Immediately clean Windows Terminal settings.json
     try:
         wt_paths = [
             _wt_settings_path,
@@ -192,7 +189,7 @@ def restore_terminal_identity(original_title: str = "Windows PowerShell"):
 
 
 def clear_screen():
-    """清除终端屏幕"""
+    """Clear terminal screen."""
     os.system("cls" if os.name == "nt" else "clear")
 
 
@@ -209,7 +206,7 @@ def get_custom_logger():
 
 
 def print_banner():
-    """打印控制台无挤压 Cyber Banner 与极简元信息"""
+    """Print Cyber-Dark ASCII banner and brand identity."""
     console.print()
     console.print(get_banner())
     console.print()
@@ -251,7 +248,7 @@ def print_step(msg: str):
 
 
 def create_progress():
-    """创建统一的极客翠绿动态进度条"""
+    """Create a unified cyber-emerald Rich progress bar."""
     return Progress(
         SpinnerColumn(spinner_name="dots", style="#10b981"),
         TextColumn("[progress.description]{task.description}"),
