@@ -60,11 +60,10 @@ pykuai/
     │       ├── snake.wav       # Launch pixel-snake hiss SFX
     │       └── type.wav        # Pixel-telegraph greeting SFX
     └── tools/                  # Local portable Windows binaries & pixel font
-        ├── ffmpeg.exe          # Audio/video muxing & transcoding
-        ├── ffprobe.exe         # Media stream analyzer
         ├── yt-dlp.exe          # Standalone stream extractor binary
         ├── UnRAR.exe           # RAR extraction utility
         └── zpix.ttf            # Recommended pixel-style terminal font
+                                # (ffmpeg/ffprobe resolved from PATH or auto-installed to ~/.pykuai/tools/)
 ```
 
 ### Module Breakdown
@@ -78,7 +77,7 @@ pykuai/
    * **[cli.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/cli.py)** & **[tray.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tray.py)**: Routes bare `pykuai` launches into the interactive REPL (with live keystroke/paste burst SFX and drag-and-drop image handling for `ifc`), or routes `pykuai tt <tool> [args]` directly to the target engine. `tt` also hosts the bottom-right global `SFX ON / OFF` toggle.
    * **[base.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/base.py)** & **[registry.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/registry.py)**: Defines the `BaseEngine` interface and automatically scans `pykuai/engines/` for lowercase 3-letter `.py` plugins.
    * **[tui.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tui.py)**, **[ui.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/ui.py)** & **[audio.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/audio.py)**: Provides the Cyber-Dark Rich theme, pixel-telegraph greeting, reusable Textual chips/dialogs (`PyKuaiStudioApp`, `ToggleChip`, `ActionChip`, `SfxToggleChip`), non-blocking WAV SFX hooks, and persistent `~/.pykuai/settings.json` state.
-   * **[deps.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/deps.py)** & **[tools.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tools.py)**: Scans engine requirements (`pp`) against the active Python environment and resolves external binaries (`ffmpeg`, `ffprobe`, `yt-dlp`, `UnRAR`) across bundled `tools/`, system `PATH`, and `~/.pykuai/tools/`.
+   * **[deps.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/deps.py)** & **[tools.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tools.py)**: Scans engine requirements (`pp`) against the active Python environment, resolves external binaries (`ffmpeg`, `ffprobe`, `yt-dlp`, `UnRAR`) across bundled `tools/`, system `PATH`, and `~/.pykuai/tools/`, and auto-installs verified Windows `FFmpeg` binaries into `~/.pykuai/tools/` on demand.
    * **[intro.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/intro.py)** & **[watchdog.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/watchdog.py)**: Drives the pixel-snake intro animation and cleanly restores Windows Terminal title/icon metadata on exit.
 
 3. **Built-In Engines (`pykuai/engines/`)**
@@ -160,7 +159,7 @@ pip install -e ".[all]"
 
 Once installed, launch from anywhere using `pykuai` or `python -m pykuai`.
 
-> Note on external binaries: PyPI packages remain lightweight and pure-Python plus static SFX/icon assets. `ytd` works out of the box once `ffmpeg` / `yt-dlp` are available on your system `PATH` or inside `~/.pykuai/tools/`.
+> Note on external binaries: PyPI packages and Git stay lightweight (~30 MiB). On Windows, if `ffmpeg` / `ffprobe` are not on `PATH` or in `~/.pykuai/tools/`, `ytd` prompts to download the verified essentials release automatically into `~/.pykuai/tools/` (or run `pykuai tt ytd --install-ffmpeg`).
 
 ---
 

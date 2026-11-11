@@ -210,12 +210,46 @@ def _format_pkg_chip(dep: DependencyInfo) -> str:
     return f"{short_name:<{max_name}} {tag}"
 
 
+PP_HELP_TITLE = "Packages  ·  Global Package Manager"
+PP_HELP_TEXT = """\
+[bold #00d2ff]Overview[/]
+  Audits and installs dependencies for PyKuai core and all registered scripts inside the active Python environment.
+
+[bold #00d2ff]Automatic Dependency Discovery[/]
+  • Reads core requirements from [bold]pyproject.toml[/] (with built-in core defaults as fallback).
+  • Merges declared [bold]requires[/] specs from every discovered tool engine and scans engine AST imports for extra third-party modules.
+
+[bold #00d2ff]Environment & Quick Selection (Pick)[/]
+  • [bold #e5e7eb]Env[/]          Shows the active Python version and installed/missing package summary.
+  • [bold #10b981]Missing (N)[/]  Select only packages marked MISSING.
+  • [bold #10b981]Core (N)[/]     Select core PyKuai runtime dependencies.
+  • [bold #10b981]All (N)[/]      Select every discovered core and tool dependency.
+  • [bold #10b981]Clear[/]        Deselect all packages.
+
+[bold #00d2ff]Package Toggles & Install[/]
+  • Click any package chip in the scrollable list to toggle selection; chips display installed version (vX.Y.Z) or MISSING.
+  • [bold #e5e7eb]Opt -> Upgrade[/]  Adds [bold]--upgrade[/] so selected packages update to match or exceed declared version specs.
+  • [bold #10b981]⚡ Install (N)[/]  Runs [bold]python -m pip install[/] for selected packages and displays a post-install verification summary.
+
+[bold #00d2ff]CLI Usage & Flags[/]
+  • [bold #e5e7eb]pykuai pp[/]              Open Package Manager Studio (or print status table when piped).
+  • [bold #e5e7eb]pykuai pp --check[/]      Display the dependency status matrix without installing.
+  • [bold #e5e7eb]pykuai pp -y \\[--all] \\[-U][/]  Install missing (or all) packages non-interactively, optionally upgrading.
+  • Keys: [bold]?[/] or [bold]F1[/] opens this guide · [bold]Esc[/] / [bold]✕ Cancel[/] exits without installing."""
+
+
 def _build_pp_studio_app(deps: list[DependencyInfo]):
     """Construct the clickable Cyber-Dark Package Installer Studio (lazy-loaded)."""
     from textual.app import ComposeResult
     from textual.containers import Container, Horizontal, VerticalScroll
     from textual.widgets import Button, Static
-    from pykuai.core.tui import ActionChip, CYBER_TUI_CSS, PyKuaiStudioApp, ToggleChip
+    from pykuai.core.tui import (
+        ActionChip,
+        CYBER_TUI_CSS,
+        PyKuaiStudioApp,
+        StudioHeader,
+        ToggleChip,
+    )
 
     missing_names = {d.name for d in deps if d.installed_version is None}
     core_names = {d.name for d in deps if d.is_core}
@@ -233,6 +267,8 @@ def _build_pp_studio_app(deps: list[DependencyInfo]):
 
     class PullPackagesApp(PyKuaiStudioApp):
         CSS = extra_css
+        HELP_TITLE = PP_HELP_TITLE
+        HELP_TEXT = PP_HELP_TEXT
 
         def compose(self) -> ComposeResult:
             py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
@@ -246,7 +282,7 @@ def _build_pp_studio_app(deps: list[DependencyInfo]):
             default_selected = missing_names if missing_count else set()
 
             with Container(id="studio-card"):
-                yield Static("📦 Packages", classes="studio-title")
+                yield StudioHeader("📦 Packages")
 
                 with Horizontal(classes="field-header"):
                     yield Static("Env:", classes="field-label")

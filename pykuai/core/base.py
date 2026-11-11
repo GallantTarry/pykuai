@@ -18,6 +18,7 @@ class BaseEngine(ABC):
     usage: str = ""
     category: str = "General"
     requires: list[str] = []
+    help_text: str = ""
 
     @abstractmethod
     def register_args(self, parser: argparse.ArgumentParser) -> None:

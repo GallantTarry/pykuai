@@ -14,6 +14,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.content import Content
+from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Static
 
 from pykuai.core.audio import is_sfx_enabled, play_sfx, toggle_sfx, warmup_sfx
@@ -55,6 +56,39 @@ Screen {
     text-style: bold;
     height: 1;
     margin-top: 1;
+}
+
+.studio-header {
+    height: 1;
+    layout: horizontal;
+    margin-top: 1;
+    margin-bottom: 0;
+}
+
+.studio-header .studio-title {
+    width: 1fr;
+    margin-top: 0;
+}
+
+HelpChip {
+    border: none;
+    height: 1;
+    min-width: 3;
+    width: auto;
+    background: #13261d;
+    color: #38BDF8;
+    text-style: bold;
+    padding: 0 1;
+    margin-left: 1;
+}
+
+HelpChip:hover {
+    background: #1e3a2f;
+    color: #00FF00;
+}
+
+HelpChip:focus {
+    text-style: underline bold;
 }
 
 .studio-subtitle {
@@ -313,6 +347,123 @@ class ActionChip(Button):
             self.add_class(variant_class)
 
 
+class HelpChip(Button):
+    """Compact top-right clickable '?' button opening the current studio's feature guide."""
+
+    def __init__(self, tooltip: str = "Feature Guide (F1)", **kwargs) -> None:
+        kwargs.setdefault("id", "btn-help")
+        kwargs.setdefault("action", "app.show_help")
+        super().__init__("?", tooltip=tooltip, **kwargs)
+
+
+class StudioHeader(Horizontal):
+    """Standard studio header row with left-aligned title and top-right clickable '?' guide."""
+
+    def __init__(self, title: str, show_help: bool = True, **kwargs) -> None:
+        self._title = title
+        self._show_help = show_help
+        kwargs.setdefault("classes", "studio-header")
+        super().__init__(**kwargs)
+
+    def compose(self) -> ComposeResult:
+        yield Static(self._title, classes="studio-title")
+        if self._show_help:
+            yield HelpChip()
+
+
+class HelpModalScreen(ModalScreen[None]):
+    """Scrollable Cyber-Dark modal displaying a script's complete English feature guide."""
+
+    DEFAULT_CSS = """
+    HelpModalScreen {
+        align: center middle;
+        background: rgba(4, 8, 6, 0.82);
+    }
+
+    #help-card {
+        width: 78;
+        max-width: 96%;
+        height: auto;
+        max-height: 92%;
+        background: #0d120f;
+        border: round #38BDF8;
+        padding: 0 2;
+    }
+
+    #help-scroll {
+        height: auto;
+        max-height: 55vh;
+        scrollbar-size: 1 1;
+        margin-top: 1;
+        border: round #1A3A1A;
+        background: #080c0a;
+        padding: 0 1;
+    }
+
+    .help-body {
+        color: #e0e0e0;
+        width: 100%;
+    }
+
+    .help-hint {
+        width: 1fr;
+        height: 1;
+        color: #6b7280;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss_help", "Close", show=False),
+        Binding("f1", "dismiss_help", "Close", show=False),
+        Binding("up", "scroll_up", "Scroll Up", show=False),
+        Binding("down", "scroll_down", "Scroll Down", show=False),
+        Binding("pageup", "page_up", "Page Up", show=False),
+        Binding("pagedown", "page_down", "Page Down", show=False),
+    ]
+
+    def __init__(self, title: str, body: str) -> None:
+        super().__init__()
+        self._help_title = title
+        self._help_body = body
+
+    def compose(self) -> ComposeResult:
+        with Container(id="help-card"):
+            yield Static(f"📘 {self._help_title}", classes="studio-title")
+            with VerticalScroll(id="help-scroll"):
+                yield Static(self._help_body, classes="help-body", markup=True)
+            with Horizontal(classes="action-bar"):
+                yield Static("↑↓ / wheel scroll · Esc / F1 close", classes="help-hint")
+                yield ActionChip("✕ Close", variant_class="-danger", id="btn-help-close")
+
+    def on_mount(self) -> None:
+        self.query_one("#btn-help-close", ActionChip).focus()
+
+    def action_dismiss_help(self) -> None:
+        play_sfx("click")
+        self.dismiss(None)
+
+    def action_scroll_up(self) -> None:
+        self.query_one("#help-scroll", VerticalScroll).scroll_up(animate=False)
+
+    def action_scroll_down(self) -> None:
+        self.query_one("#help-scroll", VerticalScroll).scroll_down(animate=False)
+
+    def action_page_up(self) -> None:
+        self.query_one("#help-scroll", VerticalScroll).scroll_page_up(animate=False)
+
+    def action_page_down(self) -> None:
+        self.query_one("#help-scroll", VerticalScroll).scroll_page_down(animate=False)
+
+    def on_click(self, event: events.Click) -> None:
+        if event.widget is self:
+            self.action_dismiss_help()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-help-close":
+            event.stop()
+            self.dismiss(None)
+
+
 class SfxToggleChip(Button):
     """Clickable 1-row retro SFX mute/unmute toggle placed in Tool Tray bottom-right."""
 
@@ -425,19 +576,40 @@ class PyKuaiStudioApp(App):
     """Base interactive studio App styled in PyKuai Cyber-Dark aesthetics."""
 
     CSS = CYBER_TUI_CSS
+    HELP_TITLE: str = ""
+    HELP_TEXT: str = ""
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
+        Binding("f1", "show_help", "Help", show=False),
     ]
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        help_title: str | None = None,
+        help_text: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         _install_tui_sfx_hooks()
         warmup_sfx()
         super().__init__(*args, **kwargs)
+        if help_title is not None:
+            self.HELP_TITLE = help_title
+        if help_text is not None:
+            self.HELP_TEXT = help_text
 
     @on(events.Paste)
     def _play_fallback_paste_sfx(self, event: events.Paste) -> None:
         if event.text:
             play_sfx("paste")
+
+    def action_show_help(self) -> None:
+        if isinstance(self.screen, HelpModalScreen):
+            self.screen.action_dismiss_help()
+            return
+        if not self.HELP_TEXT:
+            return
+        self.push_screen(HelpModalScreen(self.HELP_TITLE or "Feature Guide", self.HELP_TEXT))
 
     def action_cancel(self) -> None:
         play_sfx("click")

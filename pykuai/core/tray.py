@@ -18,13 +18,40 @@ from pykuai.core.registry import get_engine, load_all_engines
 from pykuai.core.ui import print_error
 
 
+TT_HELP_TITLE = "Tools  ·  PyKuai Tool Tray"
+TT_HELP_TEXT = """\
+[bold #00d2ff]Overview[/]
+  Central launcher for all discovered PyKuai scripts and interactive Cyber-Dark Studios.
+
+[bold #00d2ff]Auto-Discovery & Tool Cards[/]
+  • Every engine inside [bold]pykuai/engines/[/] inheriting [bold]BaseEngine[/] appears here automatically.
+  • Click any tool row (for example, [bold #10b981]ifc[/] or [bold #10b981]ytd[/]) to open its interactive Studio immediately.
+
+[bold #00d2ff]Global Tray Controls[/]
+  • [bold #e5e7eb]🔊 SFX ON / 🔇 SFX OFF[/]  Toggle retro terminal UI sound effects across Tool Tray and Studios.
+  • [bold #e5e7eb]✕ Close[/] / [bold]Esc[/]        Dismiss the Tool Tray and return to the PyKuai prompt.
+  • [bold #e5e7eb]?[/] / [bold]F1[/]               Open this Tool Tray feature guide.
+
+[bold #00d2ff]CLI & REPL Commands[/]
+  • [bold #e5e7eb]pykuai tt[/]                Open Tool Tray (or render a status table when output is piped).
+  • [bold #e5e7eb]pykuai tt <name> \\[args][/] Jump directly into a tool's Studio or run its CLI mode.
+  • [bold #e5e7eb]pykuai pp[/]                Open the Package Manager Studio (install or upgrade tool dependencies).
+  • [bold #e5e7eb]pykuai vv[/] / [bold #e5e7eb]hh[/] / [bold #e5e7eb]gg[/]    Show version & runtime info, command cheat sheet, or exit."""
+
+
 def _build_tt_app(engines: dict[str, BaseEngine]):
     """Build the clickable Textual Tool Tray launcher lazily."""
     from textual.app import ComposeResult
     from textual.containers import Horizontal, Vertical, VerticalScroll
     from textual.widgets import Button, Static
 
-    from pykuai.core.tui import ActionChip, CYBER_TUI_CSS, PyKuaiStudioApp, SfxToggleChip
+    from pykuai.core.tui import (
+        ActionChip,
+        CYBER_TUI_CSS,
+        PyKuaiStudioApp,
+        SfxToggleChip,
+        StudioHeader,
+    )
 
     tray_css = CYBER_TUI_CSS + """
     .tray-scroll {
@@ -51,10 +78,12 @@ def _build_tt_app(engines: dict[str, BaseEngine]):
 
     class ToolTrayApp(PyKuaiStudioApp):
         CSS = tray_css
+        HELP_TITLE = TT_HELP_TITLE
+        HELP_TEXT = TT_HELP_TEXT
 
         def compose(self) -> ComposeResult:
             with Vertical(id="studio-card"):
-                yield Static("🧰 Tools", classes="studio-title")
+                yield StudioHeader("🧰 Tools")
                 with VerticalScroll(classes="tray-scroll"):
                     if engines:
                         for eng in engines.values():

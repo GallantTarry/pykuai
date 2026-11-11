@@ -254,6 +254,368 @@ class DownloaderRetryTests(unittest.TestCase):
             self.assertEqual(code, 130)
             run.assert_called_once()
 
+    def test_chrome_cookie_lock_falls_back_to_cookieless_and_succeeds(self):
+        engine = ytd.YtdEngine()
+        console = Console(file=io.StringIO(), color_system=None)
+        with tempfile.TemporaryDirectory() as folder, ExitStack() as stack:
+            stack.enter_context(patch.object(ytd, "_discover_cookies_file", return_value=""))
+            stack.enter_context(patch.object(ytd, "resolve_ytdlp_runner", return_value=(["yt-dlp"], "2026.10.26")))
+            stack.enter_context(patch.object(ytd, "get_ffmpeg", return_value="ffmpeg"))
+            stack.enter_context(patch.object(ytd, "get_js_runtimes", return_value=[("node", "node")]))
+            for name in ("print_step", "print_info", "print_warning", "print_error"):
+                stack.enter_context(patch.object(ytd, name))
+            run = stack.enter_context(patch.object(engine, "_run_subprocess", side_effect=[
+                (1, ["ERROR: Could not copy Chrome cookie database. See https://github.com/yt-dlp/yt-dlp/issues/7271"], [], None),
+                (0, [], [], None),
+            ]))
+            code = engine._download("https://www.youtube.com/watch?v=1D9AN0TB3ho", "best", False, False, "chrome", "", folder, "", console)
+            self.assertEqual(code, 0)
+            self.assertEqual(run.call_count, 2)
+            first_cmd = run.call_args_list[0].args[0]
+            retry_cmd = run.call_args_list[1].args[0]
+            self.assertIn("--cookies-from-browser", first_cmd)
+            self.assertNotIn("--cookies-from-browser", retry_cmd)
+            self.assertNotIn("--cookies", retry_cmd)
+
+    def test_chrome_cookie_lock_uses_discovered_cookies_file_and_keeps_it_for_format_fallback(self):
+        engine = ytd.YtdEngine()
+        console = Console(file=io.StringIO(), color_system=None)
+        with tempfile.TemporaryDirectory() as folder, ExitStack() as stack:
+            cookie_file = os.path.join(folder, "cookies.txt")
+            with open(cookie_file, "w", encoding="utf-8") as fh:
+                fh.write("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t1893456000\tPREF\ttz=UTC\n")
+            non_cookie = os.path.join(folder, "notes.txt")
+            with open(non_cookie, "w", encoding="utf-8") as fh:
+                fh.write("just plain notes\n")
+            self.assertFalse(ytd._looks_like_netscape_cookies(non_cookie))
+            self.assertTrue(ytd._looks_like_netscape_cookies(cookie_file))
+            self.assertEqual(ytd._discover_cookies_file(folder), os.path.abspath(cookie_file))
+
+            stack.enter_context(patch.object(ytd, "resolve_ytdlp_runner", return_value=(["yt-dlp"], "2026.10.26")))
+            stack.enter_context(patch.object(ytd, "get_ffmpeg", return_value="ffmpeg"))
+            stack.enter_context(patch.object(ytd, "get_js_runtimes", return_value=[]))
+            for name in ("print_step", "print_info", "print_warning", "print_error"):
+                stack.enter_context(patch.object(ytd, name))
+            run = stack.enter_context(patch.object(engine, "_run_subprocess", side_effect=[
+                (1, ["ERROR: Failed to decrypt with DPAPI"], [], None),
+                (1, ["ERROR: HTTP Error 403"], [], None),
+                (0, [], [], None),
+            ]))
+            code = engine._download("https://www.youtube.com/watch?v=123", "1080p", False, False, "chrome", "", folder, "", console)
+            self.assertEqual(code, 0)
+            self.assertEqual(run.call_count, 3)
+            for call in run.call_args_list[1:]:
+                cmd_args = call.args[0]
+                self.assertNotIn("--cookies-from-browser", cmd_args)
+                self.assertIn("--cookies", cmd_args)
+                self.assertEqual(cmd_args[cmd_args.index("--cookies") + 1], os.path.abspath(cookie_file))
+
+    def test_probe_also_recovers_from_locked_chrome_cookies(self):
+        engine = ytd.YtdEngine()
+        console = Console(file=io.StringIO(), color_system=None)
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(ytd, "_discover_cookies_file", return_value=""))
+            stack.enter_context(patch.object(ytd, "resolve_ytdlp_runner", return_value=(["yt-dlp"], "2026.10.26")))
+            stack.enter_context(patch.object(ytd, "get_ffmpeg", return_value="ffmpeg"))
+            stack.enter_context(patch.object(ytd, "get_js_runtimes", return_value=[]))
+            for name in ("print_step", "print_info", "print_warning", "print_error"):
+                stack.enter_context(patch.object(ytd, name))
+            run = stack.enter_context(patch.object(engine, "_run_subprocess", side_effect=[
+                (1, ["ERROR: Could not copy Chrome cookie database."], [], None),
+                (0, [], [], None),
+            ]))
+            code = engine._list_formats("https://www.youtube.com/watch?v=123", False, "chrome", "", "", console)
+            self.assertEqual(code, 0)
+            self.assertEqual(run.call_count, 2)
+            self.assertNotIn("--cookies-from-browser", run.call_args_list[1].args[0])
+
+
+class DownloaderCookieAndStudioTests(unittest.IsolatedAsyncioTestCase):
+    def test_equal_ytdlp_versions_prefer_bundled_binary_when_curl_cffi_missing(self):
+        from pykuai.core import tools
+
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(tools.importlib.util, "find_spec", side_effect=lambda name: object() if name == "yt_dlp" else None))
+            stack.enter_context(patch.object(tools.importlib.metadata, "version", return_value="2026.10.26"))
+            stack.enter_context(patch.object(tools, "get_ytdlp", return_value="C:\\tools\\yt-dlp.exe"))
+            stack.enter_context(patch.object(tools, "_get_binary_ytdlp_version", return_value="2026.10.26"))
+            cmd, ver = tools.resolve_ytdlp_runner()
+            self.assertEqual(cmd, ["C:\\tools\\yt-dlp.exe"])
+            self.assertEqual(ver, "2026.10.26")
+
+    async def test_studio_supports_cookies_file_and_windows_chrome_note(self):
+        from textual.widgets import Input
+
+        with tempfile.TemporaryDirectory() as folder:
+            cookie_file = os.path.join(folder, "cookies.txt")
+            with open(cookie_file, "w", encoding="utf-8") as fh:
+                fh.write("# Netscape HTTP Cookie File\n")
+
+            with ExitStack() as stack:
+                for name in ("warmup_sfx", "play_sfx"):
+                    stack.enter_context(patch(f"pykuai.core.tui.{name}"))
+                stack.enter_context(patch.object(ytd, "_discover_cookies_file", return_value=""))
+                stack.enter_context(patch.object(ytd, "resolve_ytdlp_runner", return_value=(["yt-dlp.exe"], "2026.10.26")))
+                stack.enter_context(patch.object(ytd, "get_ffmpeg", return_value="ffmpeg.exe"))
+                stack.enter_context(patch.object(ytd, "get_js_runtimes", return_value=[]))
+
+                app = ytd._build_ytd_studio_app("https://www.youtube.com/watch?v=123")
+                async with app.run_test(size=(80, 24)) as pilot:
+                    await pilot.pause()
+                    await pilot.click("#ck-chrome")
+                    await pilot.pause()
+                    note = app.query_one("#cookie-note")
+                    self.assertEqual(note.has_class("hidden-section"), os.name != "nt")
+
+                    await pilot.click("#ck-file")
+                    await pilot.pause()
+                    self.assertTrue(note.has_class("hidden-section"))
+                    self.assertFalse(app.query_one("#cookies-row").has_class("hidden-section"))
+                    app.query_one("#cookies-input", Input).value = cookie_file
+                    await pilot.click("#btn-run")
+                    await pilot.pause()
+
+                self.assertEqual(
+                    app.return_value,
+                    ("download", "https://www.youtube.com/watch?v=123", "best", False, False, "none", cookie_file, os.getcwd(), ""),
+                )
+
+
+class TestFfmpegInstaller(unittest.TestCase):
+    @staticmethod
+    def _make_zip_bytes(entries: dict[str, bytes]) -> bytes:
+        import io
+        import zipfile
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for name, data in entries.items():
+                zf.writestr(name, data)
+        return buf.getvalue()
+
+    @staticmethod
+    def _fake_urlopen(mapping: dict[str, bytes]):
+        import io
+
+        class _FakeResponse:
+            def __init__(self, payload: bytes):
+                self._bio = io.BytesIO(payload)
+                self.headers = {"Content-Length": str(len(payload))}
+
+            def read(self, n: int = -1) -> bytes:
+                return self._bio.read(n)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        def _opener(req, timeout=60):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            if url not in mapping:
+                raise AssertionError(f"Unexpected URL requested: {url}")
+            return _FakeResponse(mapping[url])
+
+        return _opener
+
+    def test_install_ffmpeg_binaries_verifies_sha256_and_extracts(self):
+        import hashlib
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from pykuai.core import tools
+
+        zip_bytes = self._make_zip_bytes(
+            {
+                "ffmpeg-9.0.2-essentials_build/bin/ffmpeg.exe": b"FAKE-FFMPEG-BIN",
+                "ffmpeg-9.0.2-essentials_build/bin/ffprobe.exe": b"FAKE-FFPROBE-BIN",
+                "ffmpeg-9.0.2-essentials_build/README.txt": b"ignore-me",
+            }
+        )
+        digest = hashlib.sha256(zip_bytes).hexdigest()
+        sha_payload = f"{digest}  ffmpeg-release-essentials.zip\n".encode("utf-8")
+        events: list[tuple[int, int | None]] = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dest_dir = Path(tmp)
+            with (
+                mock.patch.object(tools.os, "name", "nt"),
+                mock.patch.object(
+                    tools.urllib.request,
+                    "urlopen",
+                    side_effect=self._fake_urlopen(
+                        {
+                            tools.FFMPEG_WIN_SHA256_URL: sha_payload,
+                            tools.FFMPEG_WIN_ZIP_URL: zip_bytes,
+                        }
+                    ),
+                ),
+            ):
+                ffmpeg_exe, ffprobe_exe = tools.install_ffmpeg_binaries(
+                    target_dir=dest_dir, progress_cb=lambda d, t: events.append((d, t))
+                )
+
+            self.assertEqual(ffmpeg_exe, dest_dir / "ffmpeg.exe")
+            self.assertEqual(ffprobe_exe, dest_dir / "ffprobe.exe")
+            self.assertEqual(ffmpeg_exe.read_bytes(), b"FAKE-FFMPEG-BIN")
+            self.assertEqual(ffprobe_exe.read_bytes(), b"FAKE-FFPROBE-BIN")
+            self.assertEqual(sorted(p.name for p in dest_dir.iterdir()), ["ffmpeg.exe", "ffprobe.exe"])
+            self.assertIn((len(zip_bytes), len(zip_bytes)), events)
+
+    def test_install_ffmpeg_binaries_rejects_sha256_mismatch(self):
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from pykuai.core import tools
+
+        zip_bytes = self._make_zip_bytes(
+            {
+                "bin/ffmpeg.exe": b"FF",
+                "bin/ffprobe.exe": b"FP",
+            }
+        )
+        bad_sha = ("0" * 64 + "\n").encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dest_dir = Path(tmp)
+            with (
+                mock.patch.object(tools.os, "name", "nt"),
+                mock.patch.object(
+                    tools.urllib.request,
+                    "urlopen",
+                    side_effect=self._fake_urlopen(
+                        {
+                            tools.FFMPEG_WIN_SHA256_URL: bad_sha,
+                            tools.FFMPEG_WIN_ZIP_URL: zip_bytes,
+                        }
+                    ),
+                ),
+            ):
+                with self.assertRaises(RuntimeError) as ctx:
+                    tools.install_ffmpeg_binaries(target_dir=dest_dir)
+            self.assertIn("SHA256 mismatch", str(ctx.exception))
+            self.assertEqual(list(dest_dir.iterdir()), [])
+
+    def test_install_ffmpeg_binaries_rejects_incomplete_archive(self):
+        import hashlib
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from pykuai.core import tools
+
+        zip_bytes = self._make_zip_bytes({"bin/ffmpeg.exe": b"ONLY-FFMPEG"})
+        digest = hashlib.sha256(zip_bytes).hexdigest().encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dest_dir = Path(tmp)
+            with (
+                mock.patch.object(tools.os, "name", "nt"),
+                mock.patch.object(
+                    tools.urllib.request,
+                    "urlopen",
+                    side_effect=self._fake_urlopen(
+                        {
+                            tools.FFMPEG_WIN_SHA256_URL: digest,
+                            tools.FFMPEG_WIN_ZIP_URL: zip_bytes,
+                        }
+                    ),
+                ),
+            ):
+                with self.assertRaises(RuntimeError) as ctx:
+                    tools.install_ffmpeg_binaries(target_dir=dest_dir)
+            self.assertIn("missing required executable", str(ctx.exception))
+            self.assertEqual(list(dest_dir.iterdir()), [])
+
+    def test_ensure_ffmpeg_returns_existing_and_handles_prompts(self):
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from pykuai.core import tools
+
+        with (
+            mock.patch.object(tools, "get_ffmpeg", return_value="C:\\bin\\ffmpeg.exe"),
+            mock.patch.object(tools, "install_ffmpeg_binaries", side_effect=AssertionError("should not install")),
+        ):
+            self.assertEqual(tools.ensure_ffmpeg(interactive=True), "C:\\bin\\ffmpeg.exe")
+
+        with (
+            mock.patch.object(tools.os, "name", "nt"),
+            mock.patch.object(tools, "get_ffmpeg", return_value=None),
+            mock.patch("builtins.input", side_effect=AssertionError("should not prompt")),
+            mock.patch.object(tools, "install_ffmpeg_binaries", side_effect=AssertionError("should not install")),
+        ):
+            self.assertIsNone(tools.ensure_ffmpeg(interactive=False))
+
+        with (
+            mock.patch.object(tools.os, "name", "nt"),
+            mock.patch.object(tools, "get_ffmpeg", return_value=None),
+            mock.patch("builtins.input", return_value="n"),
+            mock.patch.object(tools, "install_ffmpeg_binaries", side_effect=AssertionError("should not install")),
+        ):
+            self.assertIsNone(tools.ensure_ffmpeg(interactive=True))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_ff = Path(tmp) / "ffmpeg.exe"
+            fake_fp = Path(tmp) / "ffprobe.exe"
+            with (
+                mock.patch.object(tools.os, "name", "nt"),
+                mock.patch.object(tools, "get_ffmpeg", return_value=None),
+                mock.patch("builtins.input", return_value="y"),
+                mock.patch.object(tools, "install_ffmpeg_binaries", return_value=(fake_ff, fake_fp)) as mock_inst,
+            ):
+                res = tools.ensure_ffmpeg(interactive=True, target_dir=Path(tmp))
+            self.assertEqual(res, str(fake_ff))
+            mock_inst.assert_called_once()
+
+    def test_ytd_download_and_cli_install_ffmpeg_integration(self):
+        import argparse
+        import tempfile
+        from unittest import mock
+        from rich.console import Console
+        from pykuai.engines import ytd
+
+        engine = ytd.YtdEngine()
+        console = Console(quiet=True)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch.object(ytd, "get_ffmpeg", return_value=None),
+                mock.patch.object(ytd, "ensure_ffmpeg", return_value="C:\\users\\.pykuai\\tools\\ffmpeg.exe") as mock_ensure,
+                mock.patch.object(ytd, "resolve_ytdlp_runner", return_value=(["yt-dlp"], "2026.10.26")),
+                mock.patch.object(ytd, "get_js_runtimes", return_value=[("node", "node")]),
+                mock.patch.object(engine, "_run_with_cookie_recovery", return_value=(0, [], "out.mp4", False)) as mock_run,
+            ):
+                rc = engine._download(
+                    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    "best",
+                    False,
+                    False,
+                    "none",
+                    "",
+                    tmp,
+                    "",
+                    console,
+                )
+            self.assertEqual(rc, 0)
+            mock_ensure.assert_called_once()
+            self.assertEqual(mock_run.call_args.args[4], "C:\\users\\.pykuai\\tools\\ffmpeg.exe")
+
+        args = argparse.Namespace(install_ffmpeg=True, url="")
+        with mock.patch.object(ytd, "ensure_ffmpeg", return_value="C:\\users\\.pykuai\\tools\\ffmpeg.exe") as mock_ensure:
+            self.assertEqual(engine.run_direct(args, console), 0)
+            mock_ensure.assert_called_once_with(console=console, interactive=False, auto_confirm=True)
+
+    def test_bundled_tools_dir_excludes_heavy_ffmpeg_binaries(self):
+        from pathlib import Path
+        import pykuai
+
+        tools_dir = Path(pykuai.__file__).resolve().parent / "tools"
+        names = {p.name for p in tools_dir.iterdir()}
+        self.assertNotIn("ffmpeg.exe", names)
+        self.assertNotIn("ffprobe.exe", names)
+        self.assertTrue({"yt-dlp.exe", "UnRAR.exe", "zpix.ttf"}.issubset(names))
+
 
 if __name__ == "__main__":
     unittest.main()

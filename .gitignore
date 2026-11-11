@@ -33,3 +33,9 @@ $RECYCLE.BIN/
 *_扫描件.pdf
 *_合并结果.xlsx
 *_按【*】拆分结果/
+
+# Large local media binaries (downloaded on demand into ~/.pykuai/tools/)
+pykuai/tools/ffmpeg.exe
+pykuai/tools/ffprobe.exe
+pykuai/tools/*.dll
+

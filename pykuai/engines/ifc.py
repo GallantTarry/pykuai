@@ -169,12 +169,42 @@ def _pick_highest_res_frame(im):
     return im.copy()
 
 
+IFC_HELP_TITLE = "ifc · Image Format Converter Guide"
+IFC_HELP_TEXT = """[bold #FF9800]Overview[/]
+Powered by Pillow (`PIL`), [bold #00FF00]ifc[/] converts images across 8 target formats and packages multi-resolution Windows `.ico` icon containers with atomic file writes.
+
+[bold #FF9800]Supported Formats[/]
+• [bold #00FF00]Target (`To:`)[/]: `ICO`, `PNG`, `JPG`, `WEBP`, `BMP`, `GIF`, `TIFF`, `AVIF`
+• [bold #00FF00]Additional Input Sources[/]: `JPEG`, `TIF`, `ICNS`, `TGA`, `PPM`, `DDS`, `PSD`
+• [bold #00FF00]Multi-Frame Sources[/]: Automatically extracts the highest-resolution layer from `ICO`/`ICNS` inputs; converts the first frame of multi-frame GIF/TIFF files.
+• [bold #00FF00]Orientation & Alpha[/]: Applies EXIF orientation automatically; composites transparent pixels (`RGBA`/`LA`/`P`) onto solid white when saving to `JPG` or `BMP`.
+
+[bold #FF9800]Source & Output Controls[/]
+• [bold #00FF00]Image Input[/]: Type, paste, or drag-and-drop any image path (surrounding quotes and `~` are cleaned automatically). Live header probing shows `width × height · format`.
+• [bold #00FF00]Files[/]: Lists up to 5 image files discovered in the current working directory for 1-click loading.
+• [bold #00FF00]Out[/]: Optional output file path. Leave blank to save beside the source (`<source>.<ext>`, or `<source>_converted.<ext>` if the path matches the source). Writes via a temporary sibling file and atomically replaces on success.
+
+[bold #FF9800]ICO Icon Packaging Options[/]
+• [bold #00FF00]Presets[/]: `Std` (`16,32,48,64,128,256`), `All` (`16,20,24,32,40,48,64,128,256`), `Web` (`16,32,48`).
+• [bold #00FF00]Sizes[/]: Toggle any combination of layers between `8` and `256` px. Non-square images are padded onto a transparent square canvas without distortion.
+• [bold #00FF00]Sharpen ≤32px[/]: Applies subtle `UnsharpMask` edge sharpening to tiny layers (`<= 32px`) for sharper taskbar/favicon rendering.
+
+[bold #FF9800]Lossy Quality (`JPG` / `WEBP` / `AVIF`)[/]
+• [bold #00FF00]Qual[/]: Choose `80%`, `90%`, `92%`, `95%`, or `100%` (CLI `-q 1..100`, default `92`).
+
+[bold #FF9800]CLI & REPL Usage[/]
+• `pykuai tt ifc` — Open interactive Studio (falls back to Rich prompts in non-TUI TTY)
+• `pykuai tt ifc <image> [-t fmt] [-s 16,32,...] [-q 92] [-o out] [--no-sharpen]`
+• Tip: Drop or paste an image path directly into the `pykuai` REPL to open `ifc` pre-loaded.
+• Shortcuts: `Esc` cancels · `F1` or `?` toggles this guide."""
+
+
 def _build_ifc_studio_app(initial_path: str = ""):
     """Construct the Cyber-Dark clickable Image Format Converter Textual App (lazy-loaded)."""
     from textual.app import ComposeResult
     from textual.containers import Container, Horizontal, Vertical, VerticalScroll
     from textual.widgets import Button, Input, Static
-    from pykuai.core.tui import ActionChip, PyKuaiStudioApp, ToggleChip
+    from pykuai.core.tui import ActionChip, PyKuaiStudioApp, StudioHeader, ToggleChip
 
     extra_css = """
     #studio-card {
@@ -240,6 +270,8 @@ def _build_ifc_studio_app(initial_path: str = ""):
 
     class IfcStudioApp(PyKuaiStudioApp):
         CSS = PyKuaiStudioApp.CSS + extra_css
+        HELP_TITLE = IFC_HELP_TITLE
+        HELP_TEXT = IFC_HELP_TEXT
 
         def compose(self) -> ComposeResult:
             ok, status_text = _inspect_image(init_clean)
@@ -247,8 +279,8 @@ def _build_ifc_studio_app(initial_path: str = ""):
             default_set = set(STANDARD_ICO_SIZES)
 
             with Container(id="studio-card"):
+                yield StudioHeader("🎨 ifc  [dim #6b7280]·  Image Format Converter[/]")
                 with VerticalScroll(id="studio-scroll"):
-                    yield Static("🎨 ifc  [dim #6b7280]·  Image Format Converter[/]", classes="studio-title")
 
                     with Horizontal(classes="field-header"):
                         yield Static("Image", classes="field-label")
@@ -499,6 +531,7 @@ class IfcEngine(BaseEngine):
     usage = "tt ifc | tt ifc <image> [-t fmt] [-s sizes] [-o output]"
     category = "Media & Image"
     requires = ["Pillow>=9.0.0"]
+    help_text = IFC_HELP_TEXT
 
     def register_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("image", nargs="?", default="", help="Source image path (png, jpg, webp, bmp, gif, tiff, avif, ico, ...)")

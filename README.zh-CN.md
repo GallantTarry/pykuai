@@ -57,12 +57,11 @@ pykuai/
     │       ├── paste.wav       # 内容粘贴与文件拖入音效
     │       ├── snake.wav       # 开场像素蛇「嘶嘶」音效
     │       └── type.wav        # 开场引导像素电报打字音效
-    └── tools/                  # 本地便携工具链与字体目录
-        ├── ffmpeg.exe          # 音视频编解码与自动混流工具
-        ├── ffprobe.exe         # 媒体流信息探测工具
+    └── tools/                  # 本地轻量便携工具链与字体目录
         ├── yt-dlp.exe          # 独立流媒体解析可执行文件
         ├── UnRAR.exe           # RAR 压缩包解压外部工具
         └── zpix.ttf            # 推荐搭配的像素风格终端字体
+                                # （ffmpeg/ffprobe 优先读取系统 PATH 或按需自动下载至 ~/.pykuai/tools/）
 ```
 
 ### 各板块详细职责
@@ -85,7 +84,7 @@ pykuai/
 * **[`base.py`](pykuai/core/base.py)** 与 **[`registry.py`](pykuai/core/registry.py)**：定义所有插件必须实现的 `BaseEngine` 接口，并在运行时扫描 `pykuai/engines/` 中符合三位小写字母命名规范（`^[a-z]{3}$`）的模块实现零配置注册。
 * **[`tray.py`](pykuai/core/tray.py)**：驱动 `tt` 指令，在终端内提供可鼠标/键盘选择的工具托盘界面（右下角内置全局复古音效开关 `🔊 SFX ON / 🔇 SFX OFF`），或将 `tt <tool> [args]` 直接分发至目标引擎执行。
 * **[`deps.py`](pykuai/core/deps.py)**：驱动 `pp` 指令，自动扫描已注册引擎的依赖需求与环境缺失项，提供可视化勾选安装与 `--check` / `-y` 自动化模式。
-* **[`tools.py`](pykuai/core/tools.py)**：统一优先定位 `pykuai/tools/` 下的便携工具链、系统 `PATH` 与 `~/.pykuai/tools/` 中的二进制可执行文件（如 `ffmpeg`、`ffprobe`、`yt-dlp`、`UnRAR` 及 JS 运行时）。
+* **[`tools.py`](pykuai/core/tools.py)**：统一优先定位 `pykuai/tools/` 下的便携工具链、系统 `PATH` 与 `~/.pykuai/tools/` 中的二进制可执行文件（如 `ffmpeg`、`ffprobe`、`yt-dlp`、`UnRAR` 及 JS 运行时），并在 Windows 缺失 `FFmpeg` 时支持 SHA256 校验后按需自动安装至 `~/.pykuai/tools/`。
 * **[`watchdog.py`](pykuai/core/watchdog.py)**：后台守护 Windows Terminal `settings.json` 状态，防止控制台异常关闭时残留临时视觉配置。
 
 #### 4. `pykuai/engines/` 即插即用工具引擎层
@@ -94,7 +93,7 @@ pykuai/
 
 #### 5. `pykuai/assets/` 与 `pykuai/tools/` 静态资源与工具链区
 * **[`pykuai/assets/`](pykuai/assets/)**：统一收纳应用视觉图标 `icon.ico` 与 `sfx/` 子目录中的 6 枚 CC0 复古波形音效（`snake.wav`、`type.wav`、`key.wav`、`enter.wav`、`click.wav`、`paste.wav`）。
-* **[`pykuai/tools/`](pykuai/tools/)**：内置开箱即用的 Windows 便携命令行工具（`ffmpeg.exe`、`ffprobe.exe`、`yt-dlp.exe`、`UnRAR.exe`）与复古像素字体 `zpix.ttf`。
+* **[`pykuai/tools/`](pykuai/tools/)**：内置轻量级 Windows 便携命令行工具（`yt-dlp.exe`、`UnRAR.exe`）与复古像素字体 `zpix.ttf`；体积较大的 `ffmpeg.exe` / `ffprobe.exe` 不随 Git 仓库分发，缺失时可由 `ytd` 提示一键下载至 `~/.pykuai/tools/`（或执行 `pykuai tt ytd --install-ffmpeg`）。
 
 ---
 
