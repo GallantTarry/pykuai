@@ -71,7 +71,7 @@ pykuai/
 
 1. **Root Configuration, CI & Archive**
    * **[pyproject.toml](https://github.com/GallantTarry/pykuai/blob/main/pyproject.toml)**: Defines package metadata (`>=3.9`), core dependencies (`rich`, `textual`, `openpyxl`, `Pillow`, `pypdf`), optional extras (`office`, `media`, `cv`, `archive`, `ui`, `all`), and the `pykuai` console script entrypoint.
-   * **[.github/workflows/publish.yml](https://github.com/GallantTarry/pykuai/blob/main/.github/workflows/publish.yml)**: Passwordless PyPI Trusted Publishing pipeline triggered on `v*` / `PyKuaiv*` tags or `workflow_dispatch`.
+   * **[.github/workflows/publish.yml](https://github.com/GallantTarry/pykuai/blob/main/.github/workflows/publish.yml)**: Passwordless PyPI Trusted Publishing pipeline triggered on `v*` / `pykuaiv*` tags or `workflow_dispatch`.
    * **[.backup_engines/](https://github.com/GallantTarry/pykuai/tree/main/.backup_engines)**: Historical archive of 10 pre-refactor scripts kept for reference only (`registry.py` does not load them).
 
 2. **Micro-Kernel (`pykuai/core/`)**

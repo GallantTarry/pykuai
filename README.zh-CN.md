@@ -68,7 +68,7 @@ pykuai/
 ### 各板块详细职责
 
 #### 1. 根目录配置、发布流水线与归档区
-* **[.github/workflows/publish.yml](.github/workflows/publish.yml)**：配置基于 GitHub OIDC（Trusted Publisher）的无密钥 PyPI 自动构建与发布工作流，推送 `v*` 或 `PyKuaiv*` 标签（或手动触发 `workflow_dispatch`）即可完成打包校验与发布。
+* **[.github/workflows/publish.yml](.github/workflows/publish.yml)**：配置基于 GitHub OIDC（Trusted Publisher）的无密钥 PyPI 自动构建与发布工作流，推送 `v*` 或 `pykuaiv*` 标签（或手动触发 `workflow_dispatch`）即可完成打包校验与发布。
 * **[pyproject.toml](pyproject.toml)**：定义项目名称、版本号（`1.2.7`）、Python 版本下限（`>=3.9`）、核心依赖与可选分组（`office` / `media` / `cv` / `archive` / `ui` / `all`），注册全局 CLI 命令 `pykuai = "pykuai.cli:main"`，并声明打包资源。
 * **[README.md](README.md)** / **[README.zh-CN.md](README.zh-CN.md)**：分别用于 GitHub / PyPI 展示的英文主文档与中文详尽手册。
 * **[.backup_engines/](.backup_engines/)**：存放早期重构前保留的 10 个参考脚本（`archive.py`、`excel_merge.py`、`excel_split.py`、`img_compress.py`、`media_fetch.py`、`office_fixed.py`、`pdf_split.py`、`scanner.py`、`video_compress.py`、`web_sniffer.py`），仅作历史备份，不会被注册器自动加载。
