@@ -24,8 +24,6 @@ from rich.table import Table
 
 from pykuai.core.ui import print_error, print_info, print_step, print_success, print_warning
 
-TSINGHUA_PYPI_MIRROR = "https://pypi.tuna.tsinghua.edu.cn/simple"
-
 IMPORT_TO_PYPI: dict[str, str] = {
     "PIL": "Pillow",
     "cv2": "opencv-python",
@@ -239,32 +237,27 @@ def _build_pp_studio_app(deps: list[DependencyInfo]):
         def compose(self) -> ComposeResult:
             py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
             if missing_count:
-                summary_text = f"Python {py_ver}  •  {installed_count} installed, {missing_count} missing"
+                summary_text = f"Python {py_ver} · {installed_count} ok · {missing_count} missing"
                 summary_cls = "status-err"
             else:
-                summary_text = f"Python {py_ver}  •  All {installed_count} dependencies ready"
+                summary_text = f"Python {py_ver} · {installed_count} ready"
                 summary_cls = "status-ok"
 
             default_selected = missing_names if missing_count else set()
 
             with Container(id="studio-card"):
-                yield Static(
-                    "📦 Pull Packages (pp)  [dim #6b7280]•  Click packages to install or upgrade[/]",
-                    classes="studio-title",
-                )
+                yield Static("📦 Packages", classes="studio-title")
 
                 with Horizontal(classes="field-header"):
-                    yield Static("Environment:", classes="field-label")
+                    yield Static("Env:", classes="field-label")
                     yield Static(summary_text, classes=summary_cls)
 
                 with Horizontal(classes="compact-row"):
-                    yield Static("Select:", classes="field-label")
+                    yield Static("Pick:", classes="field-label")
                     yield ActionChip(f"Missing ({missing_count})", value="missing", variant_class="-preset", id="pre-missing")
                     yield ActionChip(f"Core ({len(core_names)})", value="core", variant_class="-preset", id="pre-core")
                     yield ActionChip(f"All ({len(deps)})", value="all", variant_class="-preset", id="pre-all")
                     yield ActionChip("Clear", value="clear", variant_class="-preset", id="pre-clear")
-
-                yield Static("Discovered Dependencies (Click to Toggle):", classes="field-label")
 
                 with VerticalScroll(classes="pkg-scroll"):
                     for idx in range(0, len(deps), 2):
@@ -281,19 +274,18 @@ def _build_pp_studio_app(deps: list[DependencyInfo]):
                                 )
 
                 with Horizontal(classes="compact-tight"):
-                    yield Static("Options:", classes="field-label")
-                    yield ToggleChip("Upgrade (--upgrade)", value="upgrade", active=False, id="opt-upgrade")
-                    yield ToggleChip("Tsinghua Mirror", value="mirror", active=False, id="opt-mirror")
+                    yield Static("Opt:", classes="field-label")
+                    yield ToggleChip("Upgrade", value="upgrade", active=False, id="opt-upgrade")
 
                 yield Static("", id="form-error", classes="hidden-err")
 
                 with Horizontal(classes="action-bar"):
                     yield ActionChip(
-                        f"⚡ Install Selected ({len(default_selected)})",
+                        f"⚡ Install ({len(default_selected)})",
                         variant_class="-primary",
                         id="btn-run",
                     )
-                    yield ActionChip("✕ Cancel (Esc)", variant_class="-danger", id="btn-cancel")
+                    yield ActionChip("✕ Cancel", variant_class="-danger", id="btn-cancel")
 
         def _sync_run_button(self) -> list[DependencyInfo]:
             selected = [
@@ -302,7 +294,7 @@ def _build_pp_studio_app(deps: list[DependencyInfo]):
                 if chip.id and chip.id.startswith("pkg-") and chip.active
             ]
             run_btn = self.query_one("#btn-run", ActionChip)
-            run_btn.label = f"⚡ Install Selected ({len(selected)})"
+            run_btn.label = f"⚡ Install ({len(selected)})"
             return selected
 
         def _set_error(self, msg: str = "") -> None:
@@ -338,8 +330,7 @@ def _build_pp_studio_app(deps: list[DependencyInfo]):
                     self._set_error("Select at least one package to install.")
                     return
                 upgrade = self.query_one("#opt-upgrade", ToggleChip).active
-                use_mirror = self.query_one("#opt-mirror", ToggleChip).active
-                self.exit((selected, upgrade, use_mirror))
+                self.exit((selected, upgrade))
             elif btn.id == "btn-cancel":
                 self.exit(None)
 
@@ -377,15 +368,12 @@ def install_dependencies(
     targets: list[DependencyInfo],
     console: Console,
     upgrade: bool = False,
-    use_mirror: bool = False,
 ) -> int:
-    """Install selected dependencies via python -m pip and show verification summary."""
+    """Install selected dependencies via native python -m pip and show verification summary."""
     specs = [dep.spec for dep in targets]
     cmd = [sys.executable, "-m", "pip", "install"]
     if upgrade:
         cmd.append("--upgrade")
-    if use_mirror:
-        cmd.extend(["-i", TSINGHUA_PYPI_MIRROR])
     cmd.extend(specs)
 
     print_step(f"Pulling [bold #00FF00]{len(specs)}[/bold #00FF00] package(s) via pip...")
@@ -438,7 +426,6 @@ def run_pull_packages(console: Console, cli_args: list[str] | None = None, inter
         parser.add_argument("--all", action="store_true", help="Target all dependencies (including installed)")
         parser.add_argument("-y", "--yes", action="store_true", help="Install missing dependencies non-interactively")
         parser.add_argument("-U", "--upgrade", action="store_true", help="Upgrade existing packages via pip")
-        parser.add_argument("--mirror", action="store_true", help="Use Tsinghua PyPI mirror")
         try:
             args = parser.parse_args(cli_args)
         except SystemExit:
@@ -451,7 +438,7 @@ def run_pull_packages(console: Console, cli_args: list[str] | None = None, inter
         if not targets:
             print_success("All dependencies are already installed.")
             return 0
-        return install_dependencies(targets, console, upgrade=args.upgrade, use_mirror=args.mirror)
+        return install_dependencies(targets, console, upgrade=args.upgrade)
 
     from pykuai.core.tui import is_interactive_tty
 
@@ -462,8 +449,8 @@ def run_pull_packages(console: Console, cli_args: list[str] | None = None, inter
         if not result:
             console.print("[dim]› Cancelled.[/dim]")
             return 0
-        targets, upgrade, use_mirror = result
-        return install_dependencies(targets, console, upgrade=upgrade, use_mirror=use_mirror)
+        targets, upgrade = result
+        return install_dependencies(targets, console, upgrade=upgrade)
 
     # Non-TTY / piped fallback: display audit table
     print_dependency_table(deps, console)

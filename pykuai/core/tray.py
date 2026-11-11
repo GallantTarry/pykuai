@@ -1,6 +1,6 @@
 """
 Visual Tool Tray (tt) launcher and unified tool subcommand dispatcher.
-Houses tool engines such as `ico` under a single clean doubled-letter entry point.
+Houses tool engines such as `ifc` and `ytd` under a single clean doubled-letter entry point.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ def _build_tt_app(engines: dict[str, BaseEngine]):
     from textual.containers import Horizontal, Vertical, VerticalScroll
     from textual.widgets import Button, Static
 
-    from pykuai.core.tui import ActionChip, CYBER_TUI_CSS, PyKuaiStudioApp
+    from pykuai.core.tui import ActionChip, CYBER_TUI_CSS, PyKuaiStudioApp, SfxToggleChip
 
     tray_css = CYBER_TUI_CSS + """
     .tray-scroll {
@@ -52,43 +52,35 @@ def _build_tt_app(engines: dict[str, BaseEngine]):
         CSS = tray_css
 
         def compose(self) -> ComposeResult:
-            count = len(engines)
             with Vertical(id="studio-card"):
-                yield Static(
-                    "🧰 Tool Tray (tt)  •  Click a tool to launch",
-                    classes="studio-title",
-                )
-                yield Static(
-                    f"Available Tools ({count})  •  Direct syntax: tt <tool> [args]",
-                    classes="field-label",
-                    markup=False,
-                )
+                yield Static("🧰 Tools", classes="studio-title")
                 with VerticalScroll(classes="tray-scroll"):
                     if engines:
                         for eng in engines.values():
                             yield ActionChip(
-                                f"⚡ {eng.name}  —  {eng.description}",
+                                f"{eng.name:<5} {eng.description}",
                                 value=eng,
                                 variant_class="-file",
                                 id=f"tool-{eng.name}",
                                 classes="tool-btn",
                             )
                     else:
-                        yield Static(
-                            "No tools registered in the tray yet.",
-                            classes="field-label",
-                        )
+                        yield Static("No tools registered.", classes="field-label")
 
                 with Horizontal(classes="action-bar"):
                     yield ActionChip(
-                        "✕ Close (Esc)",
+                        "✕ Close",
                         value="__cancel__",
                         variant_class="-danger",
                         id="btn-cancel",
                     )
+                    yield Static("", classes="action-spacer")
+                    yield SfxToggleChip(id="btn-sfx")
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
             btn = event.button
+            if isinstance(btn, SfxToggleChip):
+                return
             val = getattr(btn, "value", None)
             if btn.id == "btn-cancel" or val == "__cancel__":
                 self.exit(None)

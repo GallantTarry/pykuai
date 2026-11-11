@@ -50,4 +50,4 @@ where = ["."]
 include = ["pykuai*"]
 
 [tool.setuptools.package-data]
-"pykuai" = ["tools/*", "assets/*"]
+"pykuai" = ["tools/*", "assets/*", "assets/sfx/*"]

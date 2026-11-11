@@ -9,11 +9,14 @@ from __future__ import annotations
 import sys
 from typing import Any
 
+from textual import events, on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.content import Content
 from textual.widgets import Button, Input, Static
+
+from pykuai.core.audio import is_sfx_enabled, play_sfx, toggle_sfx
 
 
 def is_interactive_tty() -> bool:
@@ -147,7 +150,7 @@ Input.cyber-slim:focus {
 ToggleChip, ActionChip {
     border: none;
     height: 1;
-    min-width: 8;
+    min-width: 6;
     width: auto;
     background: #161f1b;
     color: #9ca3af;
@@ -235,6 +238,38 @@ ActionChip.-danger:hover {
     margin-bottom: 1;
 }
 
+.action-spacer {
+    width: 1fr;
+    height: 1;
+}
+
+SfxToggleChip {
+    border: none;
+    height: 1;
+    min-width: 8;
+    width: auto;
+    background: #0b2e1c;
+    color: #00FF00;
+    text-style: bold;
+    padding: 0 1;
+}
+
+SfxToggleChip:hover {
+    background: #064e3b;
+    color: #ffffff;
+}
+
+SfxToggleChip.-sfx-off {
+    background: #2b1414;
+    color: #FF5252;
+    text-style: none;
+}
+
+SfxToggleChip.-sfx-off:hover {
+    background: #451a1a;
+    color: #fca5a5;
+}
+
 .hint-footer {
     color: #6b7280;
     height: 1;
@@ -278,6 +313,114 @@ class ActionChip(Button):
             self.add_class(variant_class)
 
 
+class SfxToggleChip(Button):
+    """Clickable 1-row retro SFX mute/unmute toggle placed in Tool Tray bottom-right."""
+
+    def __init__(self, **kwargs) -> None:
+        enabled = is_sfx_enabled()
+        super().__init__(self._format_state(enabled), **kwargs)
+        self.set_class(not enabled, "-sfx-off")
+
+    @staticmethod
+    def _format_state(enabled: bool) -> Content:
+        return Content("🔊 SFX ON" if enabled else "🔇 SFX OFF")
+
+    def sync(self) -> None:
+        enabled = is_sfx_enabled()
+        self.label = self._format_state(enabled)
+        self.set_class(not enabled, "-sfx-off")
+
+    def press(self):
+        if self.disabled or not self.display:
+            return self
+        toggle_sfx()
+        self.sync()
+        return self
+
+
+_SFX_HOOKS_INSTALLED = False
+
+
+def _install_tui_sfx_hooks() -> None:
+    """Install invisible global click, keystroke, enter & paste retro SFX hooks for PyKuaiStudioApp once."""
+    global _SFX_HOOKS_INSTALLED
+    if _SFX_HOOKS_INSTALLED:
+        return
+    _SFX_HOOKS_INSTALLED = True
+
+    orig_press = Button.press
+    orig_action_press = Button.action_press
+    orig_on_key = Input._on_key
+    orig_delete_left = Input.action_delete_left
+    orig_delete_right = Input.action_delete_right
+    orig_action_submit = Input.action_submit
+    orig_on_paste = Input._on_paste
+    orig_action_paste = Input.action_paste
+
+    suppress_press_click = False
+
+    def _is_studio(widget: Any) -> bool:
+        try:
+            return isinstance(widget.app, PyKuaiStudioApp)
+        except Exception:
+            return False
+
+    def _press_with_sfx(btn: Button, *args: Any, **kwargs: Any):
+        if not suppress_press_click and not isinstance(btn, SfxToggleChip) and not btn.disabled and btn.display and _is_studio(btn):
+            play_sfx("click")
+        return orig_press(btn, *args, **kwargs)
+
+    def _action_press_with_sfx(btn: Button):
+        nonlocal suppress_press_click
+        if not isinstance(btn, SfxToggleChip) and not btn.disabled and btn.display and not btn.has_class("-active") and _is_studio(btn):
+            play_sfx("enter")
+            suppress_press_click = True
+            try:
+                return orig_action_press(btn)
+            finally:
+                suppress_press_click = False
+        return orig_action_press(btn)
+
+    async def _on_key_with_sfx(inp: Input, event: events.Key):
+        if event.is_printable and _is_studio(inp):
+            play_sfx("key")
+        return await orig_on_key(inp, event)
+
+    def _delete_left_with_sfx(inp: Input):
+        if _is_studio(inp) and (inp.cursor_position > 0 or not inp.selection.is_empty):
+            play_sfx("key")
+        return orig_delete_left(inp)
+
+    def _delete_right_with_sfx(inp: Input):
+        if _is_studio(inp) and (inp.cursor_position < len(inp.value) or not inp.selection.is_empty):
+            play_sfx("key")
+        return orig_delete_right(inp)
+
+    async def _action_submit_with_sfx(inp: Input):
+        if _is_studio(inp):
+            play_sfx("enter")
+        return await orig_action_submit(inp)
+
+    def _on_paste_with_sfx(inp: Input, event: events.Paste):
+        if event.text and _is_studio(inp):
+            play_sfx("paste")
+        return orig_on_paste(inp, event)
+
+    def _action_paste_with_sfx(inp: Input):
+        if _is_studio(inp) and inp.app.clipboard:
+            play_sfx("paste")
+        return orig_action_paste(inp)
+
+    Button.press = _press_with_sfx  # type: ignore[method-assign]
+    Button.action_press = _action_press_with_sfx  # type: ignore[method-assign]
+    Input._on_key = _on_key_with_sfx  # type: ignore[method-assign]
+    Input.action_delete_left = _delete_left_with_sfx  # type: ignore[method-assign]
+    Input.action_delete_right = _delete_right_with_sfx  # type: ignore[method-assign]
+    Input.action_submit = _action_submit_with_sfx  # type: ignore[method-assign]
+    Input._on_paste = _on_paste_with_sfx  # type: ignore[method-assign]
+    Input.action_paste = _action_paste_with_sfx  # type: ignore[method-assign]
+
+
 class PyKuaiStudioApp(App):
     """Base interactive studio App styled in PyKuai Cyber-Dark aesthetics."""
 
@@ -286,7 +429,17 @@ class PyKuaiStudioApp(App):
         Binding("escape", "cancel", "Cancel", show=False),
     ]
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        _install_tui_sfx_hooks()
+        super().__init__(*args, **kwargs)
+
+    @on(events.Paste)
+    def _play_fallback_paste_sfx(self, event: events.Paste) -> None:
+        if event.text:
+            play_sfx("paste")
+
     def action_cancel(self) -> None:
+        play_sfx("click")
         self.exit(None)
 
 

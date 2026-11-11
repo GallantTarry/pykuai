@@ -40,12 +40,12 @@ console = Console(theme=CYBER_THEME, legacy_windows=False)
 
 
 def get_banner() -> str:
-    """Render Cyber-Dark ASCII Banner."""
+    """Render minimal Cyber-Dark ASCII Banner."""
     return (
         "[bold #00FF00]██████╗ ██╗   ██╗██╗  ██╗██╗   ██╗ █████╗ ██╗[/]\n"
-        "[bold #00FF00]██╔══██╗╚██╗ ██╔╝██║ ██╔╝██║   ██║██╔══██╗██║[/]   [bold #FF9800]v1.2.7[/bold #FF9800]\n"
-        "[bold #10b981]██████╔╝ ╚████╔╝ █████═╝ ██║   ██║███████║██║[/]   [dim]Author:[/dim] [bold #FF9800]TuKuai[/bold #FF9800] | [bold #10b981]GallantTarry[/bold #10b981]\n"
-        "[bold #10b981]██╔═══╝   ╚██╔╝  ██╔═██╗ ██║   ██║██╔══██║██║[/]   [italic #FF9800]\"The Lord is my shepherd.\"[/italic #FF9800]\n"
+        "[bold #00FF00]██╔══██╗╚██╗ ██╔╝██║ ██╔╝██║   ██║██╔══██╗██║[/]\n"
+        "[bold #10b981]██████╔╝ ╚████╔╝ █████═╝ ██║   ██║███████║██║[/]\n"
+        "[bold #10b981]██╔═══╝   ╚██╔╝  ██╔═██╗ ██║   ██║██╔══██║██║[/]\n"
         "[bold #047857]██║        ██║   ██║  ██╗╚██████╔╝██║  ██║██║[/]\n"
         "[bold #047857]╚═╝        ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝[/]"
     )
@@ -210,6 +210,92 @@ def print_banner():
     """Print Cyber-Dark ASCII banner and brand identity."""
     console.print()
     console.print(get_banner())
+    console.print()
+
+
+def _build_console_greeting() -> tuple[Text, Text]:
+    """Build the playful two-line encounter prompt shown on console startup."""
+    line1 = Text.assemble(
+        ("🐍 ", ""),
+        ("Whoa! ", "bold #FF9800"),
+        ("pykuai", "bold #00FF00"),
+        (" just slithered into your console!", "#E0E0E0"),
+    )
+    line2 = Text.assemble(
+        ("   Type ", "#9ca3af"),
+        ("hh", "bold #00FF00"),
+        (" for backup & tools — or ", "#9ca3af"),
+        ("gg", "bold #FF5252"),
+        (" to quit the game.", "#9ca3af"),
+    )
+    return line1, line2
+
+
+def _has_pending_keypress() -> bool:
+    """Non-destructively peek whether a key is buffered on Windows."""
+    if os.name != "nt":
+        return False
+    try:
+        import msvcrt
+        return bool(msvcrt.kbhit())
+    except Exception:
+        return False
+
+
+def play_console_greeting(skip_animation: bool = False) -> None:
+    """Type out the playful opening prompt with pixel-telegraph cadence."""
+    line1, line2 = _build_console_greeting()
+    is_tty = sys.stdout.isatty() and sys.stdin.isatty()
+    if skip_animation or not is_tty:
+        console.print(line1)
+        console.print(line2)
+        console.print()
+        return
+
+    from rich.live import Live
+    from pykuai.core.audio import play_sfx
+
+    def _wait_or_skip(seconds: float) -> bool:
+        if _has_pending_keypress():
+            return True
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            time.sleep(min(0.012, max(0.0, deadline - time.monotonic())))
+            if _has_pending_keypress():
+                return True
+        return False
+
+    cursor = Text("▌", style="bold #00FF00")
+    try:
+        with Live(Text("\n "), console=console, refresh_per_second=60, transient=False) as live:
+            try:
+                skipped = False
+                for idx in range(1, len(line1.plain) + 1):
+                    ch = line1.plain[idx - 1]
+                    live.update(Text.assemble(line1[:idx], cursor, "\n "), refresh=True)
+                    if not ch.isspace():
+                        play_sfx("type")
+                    if _wait_or_skip(0.028):
+                        skipped = True
+                        break
+
+                if not skipped:
+                    skipped = _wait_or_skip(0.22)
+
+                if not skipped:
+                    for idx in range(4, len(line2.plain) + 1):
+                        ch = line2.plain[idx - 1]
+                        live.update(Text.assemble(line1, "\n", line2[:idx], cursor), refresh=True)
+                        if not ch.isspace():
+                            play_sfx("type")
+                        if _wait_or_skip(0.025):
+                            break
+            except KeyboardInterrupt:
+                pass
+            live.update(Text.assemble(line1, "\n", line2), refresh=True)
+    except Exception:
+        console.print(line1)
+        console.print(line2)
     console.print()
 
 

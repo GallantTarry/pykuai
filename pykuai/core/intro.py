@@ -172,6 +172,12 @@ class DesktopSnakeOverlay(QWidget):
         self.timer.timeout.connect(self.update_animation)
         self.timer.start(16)
 
+        try:
+            from pykuai.core.audio import play_sfx
+            play_sfx("snake")
+        except Exception:
+            pass
+
     def update_animation(self):
         self.frame += 1
         progress = self.frame / self.total_frames
@@ -276,10 +282,20 @@ class DesktopSnakeOverlay(QWidget):
 
     def keyPressEvent(self, event: QKeyEvent):
         self.timer.stop()
+        try:
+            from pykuai.core.audio import stop_sfx
+            stop_sfx()
+        except Exception:
+            pass
         self.close()
 
     def mousePressEvent(self, event: QMouseEvent):
         self.timer.stop()
+        try:
+            from pykuai.core.audio import stop_sfx
+            stop_sfx()
+        except Exception:
+            pass
         self.close()
 
     def closeEvent(self, event):

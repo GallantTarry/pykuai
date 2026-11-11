@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Stream & Video Downloader Engine (`media`)
+YouTube & Stream Downloader Engine (`ytd` - YouTube Download)
 Powered by yt-dlp (https://github.com/yt-dlp/yt-dlp) and FFmpeg.
 
 Supports YouTube (with automated JS runtime & EJS challenge resolution),
@@ -18,6 +18,7 @@ from typing import Optional
 
 from rich import box
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Prompt
 
@@ -100,31 +101,31 @@ def _clean_text(raw: str) -> str:
 def _validate_url(url: str) -> tuple[bool, str]:
     clean = _clean_text(url)
     if not clean:
-        return False, "YouTube · Bilibili · X · 1000+ sites"
+        return False, ""
     if not re.match(r"^https?://[^\s/$.?#].[^\s]*$", clean, re.IGNORECASE):
-        return False, "Enter a valid http:// or https:// URL"
+        return False, "Invalid URL"
     low = clean.lower()
     if "youtube.com" in low or "youtu.be" in low:
-        return True, "✓ YouTube link (EJS solver ready)"
+        return True, "✓ YouTube"
     if "bilibili.com" in low or "b23.tv" in low:
-        return True, "✓ Bilibili link detected"
+        return True, "✓ Bilibili"
     if "x.com" in low or "twitter.com" in low:
-        return True, "✓ X / Twitter link detected"
-    return True, "✓ Valid stream URL"
+        return True, "✓ X"
+    return True, "✓ URL"
 
 
-def _build_media_studio_app(initial_url: str = ""):
-    """Construct the clickable Cyber-Dark Media Fetch Studio (lazy-loaded)."""
+def _build_ytd_studio_app(initial_url: str = ""):
+    """Construct the clickable Cyber-Dark YouTube Download (ytd) Studio (lazy-loaded)."""
     from textual.app import ComposeResult
     from textual.containers import Container, Horizontal, VerticalScroll
     from textual.widgets import Button, Input, Static
     from pykuai.core.tui import ActionChip, CYBER_TUI_CSS, PyKuaiStudioApp, ToggleChip
 
     runner = resolve_ytdlp_runner()
-    ytdlp_lbl = f"yt-dlp {runner[1]}" if runner else "yt-dlp MISSING (run pp)"
-    ffmpeg_lbl = "Ready" if get_ffmpeg() else "Missing"
+    ytdlp_lbl = f"yt-dlp {runner[1]}" if runner else "yt-dlp missing"
+    ffmpeg_lbl = "ffmpeg" if get_ffmpeg() else "no ffmpeg"
     runtimes = get_js_runtimes()
-    js_lbl = ", ".join(rt for rt, _ in runtimes) if runtimes else "None"
+    js_lbl = "/".join(rt for rt, _ in runtimes) if runtimes else "no js"
 
     init_clean = _clean_text(initial_url)
     media_css = CYBER_TUI_CSS + """
@@ -146,7 +147,7 @@ def _build_media_studio_app(initial_url: str = ""):
     }
     """
 
-    class MediaStudioApp(PyKuaiStudioApp):
+    class YtdStudioApp(PyKuaiStudioApp):
         CSS = media_css
 
         def compose(self) -> ComposeResult:
@@ -156,50 +157,50 @@ def _build_media_studio_app(initial_url: str = ""):
             with Container(id="studio-card"):
                 with VerticalScroll(id="studio-scroll"):
                     yield Static(
-                        "🎬 Media Fetch Studio  [dim #6b7280]•  Powered by yt-dlp & FFmpeg[/]",
+                        "🎬 ytd  [dim #6b7280]·  yt-dlp[/]",
                         classes="studio-title",
                     )
 
                     with Horizontal(classes="field-header"):
-                        yield Static("Source URL", classes="field-label")
+                        yield Static("URL", classes="field-label")
                         yield Static(status_text, id="url-status", classes=status_cls)
 
                     yield Input(
                         value=init_clean,
-                        placeholder="Paste video or playlist URL (https://...)...",
+                        placeholder="https://...",
                         id="url-input",
                         classes="cyber-input",
                     )
 
                     with Horizontal(classes="compact-tight"):
                         yield Static("Video: ", classes="field-label")
-                        yield ToggleChip("Best MP4", value="best", active=True, id="fmt-best")
-                        yield ToggleChip("1080p H.264", value="1080p", active=False, id="fmt-1080p")
-                        yield ToggleChip("720p H.264", value="720p", active=False, id="fmt-720p")
+                        yield ToggleChip("Best", value="best", active=True, id="fmt-best")
+                        yield ToggleChip("1080p", value="1080p", active=False, id="fmt-1080p")
+                        yield ToggleChip("720p", value="720p", active=False, id="fmt-720p")
 
                     with Horizontal(classes="compact-row"):
                         yield Static("Audio: ", classes="field-label")
-                        yield ToggleChip("MP3 320k", value="mp3", active=False, id="fmt-mp3")
-                        yield ToggleChip("M4A AAC", value="m4a", active=False, id="fmt-m4a")
+                        yield ToggleChip("MP3", value="mp3", active=False, id="fmt-mp3")
+                        yield ToggleChip("M4A", value="m4a", active=False, id="fmt-m4a")
 
                     with Horizontal(classes="compact-row"):
                         yield Static("Scope:", classes="field-label")
-                        yield ToggleChip("Single Video", value="single", active=True, id="scope-single")
+                        yield ToggleChip("Single", value="single", active=True, id="scope-single")
                         yield ToggleChip("Playlist", value="playlist", active=False, id="scope-playlist")
-                        yield ToggleChip("Subtitles", value="subs", active=False, id="opt-subs")
+                        yield ToggleChip("Subs", value="subs", active=False, id="opt-subs")
 
                     with Horizontal(classes="compact-row"):
-                        yield Static("Cookies:", classes="field-label")
+                        yield Static("Cookie:", classes="field-label")
                         yield ToggleChip("None", value="none", active=True, id="ck-none")
                         yield ToggleChip("Chrome", value="chrome", active=False, id="ck-chrome")
                         yield ToggleChip("Edge", value="edge", active=False, id="ck-edge")
                         yield ToggleChip("Firefox", value="firefox", active=False, id="ck-firefox")
 
                     with Horizontal(classes="compact-tight"):
-                        yield Static("Save To:", classes="field-label")
+                        yield Static("Dir:  ", classes="field-label")
                         yield Input(
                             value=os.getcwd(),
-                            placeholder="Destination folder...",
+                            placeholder=".",
                             id="out-input",
                             classes="cyber-slim",
                         )
@@ -207,13 +208,13 @@ def _build_media_studio_app(initial_url: str = ""):
                     with Horizontal(classes="slim-row"):
                         yield Static("Proxy:", classes="field-label")
                         yield Input(
-                            placeholder="(Optional: auto env proxy if blank, e.g. http://127.0.0.1:7897)",
+                            placeholder="http://127.0.0.1:7897 (optional)",
                             id="proxy-input",
                             classes="cyber-slim",
                         )
 
                     yield Static(
-                        f"Engine: {ytdlp_lbl}  •  FFmpeg: {ffmpeg_lbl}  •  JS: {js_lbl}",
+                        f"{ytdlp_lbl} · {ffmpeg_lbl} · {js_lbl}",
                         id="engine-info",
                         classes="hint-footer",
                     )
@@ -221,9 +222,9 @@ def _build_media_studio_app(initial_url: str = ""):
                 yield Static("", id="form-error", classes="hidden-err")
 
                 with Horizontal(classes="action-bar"):
-                    yield ActionChip("⚡ Download", variant_class="-primary", id="btn-run")
-                    yield ActionChip("🔎 List Formats", variant_class="-preset", id="btn-probe")
-                    yield ActionChip("✕ Cancel (Esc)", variant_class="-danger", id="btn-cancel")
+                    yield ActionChip("⚡ Run", variant_class="-primary", id="btn-run")
+                    yield ActionChip("Formats", variant_class="-preset", id="btn-probe")
+                    yield ActionChip("✕ Cancel", variant_class="-danger", id="btn-cancel")
 
         def on_mount(self) -> None:
             if init_clean:
@@ -315,14 +316,14 @@ def _build_media_studio_app(initial_url: str = ""):
                 (action, url_val, fmt_key, is_playlist, subtitles, cookies_browser, "", out_dir, proxy_url)
             )
 
-    return MediaStudioApp()
+    return YtdStudioApp()
 
 
-def _launch_media_studio(
+def _launch_ytd_studio(
     initial_url: str = "",
 ) -> Optional[tuple[str, str, str, bool, bool, str, str, str, str]]:
-    """Launch clickable Media Fetch Studio inside interactive TTY."""
-    app = _build_media_studio_app(initial_url=initial_url)
+    """Launch clickable ytd Studio inside interactive TTY."""
+    app = _build_ytd_studio_app(initial_url=initial_url)
     result = app.run(mouse=True)
     sys.stdout.flush()
     return result
@@ -404,10 +405,10 @@ def _build_ytdlp_command(
     return cmd
 
 
-class MediaFetchEngine(BaseEngine):
-    name = "media"
-    description = "Download videos or extract audio via yt-dlp & FFmpeg (YouTube, Bilibili, X, etc.)"
-    usage = "tt media | tt media <url> [-f best|1080p|720p|mp3|m4a] [-o dir]"
+class YtdEngine(BaseEngine):
+    name = "ytd"
+    description = "YouTube Download (yt-dlp + FFmpeg)"
+    usage = "tt ytd | tt ytd <url> [-f best|1080p|720p|mp3|m4a] [-o dir]"
     category = "Media & Video"
     requires = ["yt-dlp>=2026.10.0", "yt-dlp-ejs>=0.8.0"]
 
@@ -483,7 +484,7 @@ class MediaFetchEngine(BaseEngine):
         from pykuai.core.tui import is_interactive_tty
 
         if is_interactive_tty():
-            selection = _launch_media_studio(initial_url=initial_url)
+            selection = _launch_ytd_studio(initial_url=initial_url)
             if not selection:
                 console.print("[dim]› Cancelled.[/dim]")
                 return 0
@@ -520,7 +521,7 @@ class MediaFetchEngine(BaseEngine):
             )
 
         # Fallback prompt path for non-TTY / piped environments
-        console.print("[bold #FF9800]🎬 Launch Media Fetch Engine (Powered by yt-dlp & FFmpeg)[/bold #FF9800]")
+        console.print("[bold #FF9800]🎬 ytd (yt-dlp + FFmpeg)[/bold #FF9800]")
         url = _clean_text(initial_url or Prompt.ask("[#10b981]?[/#10b981] Video or playlist URL"))
         if not url:
             print_error("No URL provided.")
@@ -594,8 +595,9 @@ class MediaFetchEngine(BaseEngine):
                 final_file = _clean_text(line[len("[download] ") :].split(" has already been downloaded", 1)[0])
 
             if line.startswith("ERROR:"):
-                errors.append(line)
-                console.print(f"[bold #FF5252]  {line}[/bold #FF5252]")
+                if line not in errors:
+                    errors.append(line)
+                    console.print(f"[bold #FF5252]  {escape(line)}[/bold #FF5252]")
                 continue
 
             if line.startswith("WARNING:"):
@@ -624,42 +626,57 @@ class MediaFetchEngine(BaseEngine):
         process.wait()
         return process.returncode, errors, warnings, final_file
 
-    def _print_diagnostics(self, errors: list[str], js_runtimes: list[tuple[str, str]], console: Console) -> None:
+    def _print_diagnostics(self, errors: list[str], js_runtimes: list[tuple[str, str]], console: Console) -> bool:
         """Render actionable remediation hints tailored to the captured yt-dlp failure."""
         joined = "\n".join(errors).lower()
 
-        if "sign in to confirm" in joined or "login_required" in joined:
+        if "could not copy" in joined or "cookie database" in joined or "failed to decrypt with dpapi" in joined:
             console.print()
             console.print(
                 Panel(
-                    "[bold #FF9800]YouTube Bot / Sign-In Check Triggered[/bold #FF9800]\n\n"
-                    "YouTube rejected unauthenticated requests from your current IP or proxy node.\n"
-                    "Recommended fixes:\n"
-                    "  [dim]1.[/dim] Select [bold #00FF00]Chrome / Edge / Firefox[/bold #00FF00] under "
-                    "[bold]Cookies[/bold] in Media Studio (or pass [bold]--cookies-from-browser chrome[/bold])\n"
-                    "  [dim]2.[/dim] Pass exported [bold]--cookies cookies.txt[/bold]\n"
-                    "  [dim]3.[/dim] Switch to a cleaner proxy exit node via [bold]--proxy[/bold]",
+                    "[bold #FF9800]Browser Cookie Locked / Blocked on Windows[/bold #FF9800]\n"
+                    "Chrome & Edge lock their cookie DB while running (yt-dlp #7271) "
+                    "and Chromium 127+ blocks DPAPI decryption (#10927).\n"
+                    "  [dim]1.[/dim] Use [bold #00FF00]Firefox[/bold #00FF00] under Cookie (works while open)\n"
+                    "  [dim]2.[/dim] Export cookies via extension and pass [bold]--cookies cookies.txt[/bold]\n"
+                    "  [dim]3.[/dim] Or select Cookie: [bold]None[/bold] + switch proxy node",
                     border_style="#FF9800",
                     box=box.ROUNDED,
                     expand=False,
                 )
             )
-            return
+            return True
+
+        if "sign in to confirm" in joined or "login_required" in joined:
+            console.print()
+            console.print(
+                Panel(
+                    "[bold #FF9800]YouTube Sign-In / Bot Check[/bold #FF9800]\n"
+                    "YouTube flagged requests from your current IP or proxy node.\n"
+                    "  [dim]1.[/dim] Switch to a cleaner proxy node ([bold]Proxy[/bold] / [bold]--proxy[/bold])\n"
+                    "  [dim]2.[/dim] Use [bold #00FF00]Firefox[/bold #00FF00] under Cookie or pass [bold]--cookies cookies.txt[/bold]\n"
+                    "  [dim](Windows Chrome/Edge lock cookies while running)[/dim]",
+                    border_style="#FF9800",
+                    box=box.ROUNDED,
+                    expand=False,
+                )
+            )
+            return True
 
         if "http error 403" in joined or "signature" in joined or "challenge" in joined:
             js_tip = (
-                f"Detected JS runtime: {', '.join(r for r, _ in js_runtimes)}."
+                f"JS: {', '.join(r for r, _ in js_runtimes)}"
                 if js_runtimes
-                else "No JS runtime found — install Node.js or Deno, and run `pykuai pp`."
+                else "No JS runtime — install Node.js or Deno"
             )
-            print_warning(
-                f"Stream CDN returned 403 or challenge error. {js_tip} "
-                "Try upgrading via `pykuai pp -U` or selecting Browser Cookies."
-            )
-            return
+            print_warning(f"Stream 403 / challenge error ({js_tip}). Try `pykuai pp -U` or cookies.")
+            return True
 
         if "timed out" in joined or "urlopen error" in joined or "proxy" in joined:
-            print_warning("Network or proxy timeout. Verify connectivity or override via `--proxy`.")
+            print_warning("Network/proxy timeout. Check connectivity or set `--proxy`.")
+            return True
+
+        return False
 
     def _list_formats(
         self,
@@ -784,25 +801,21 @@ class MediaFetchEngine(BaseEngine):
                 size_line = ""
                 if final_file and os.path.isfile(final_file):
                     size_mb = os.path.getsize(final_file) / (1024 * 1024)
-                    size_line = (
-                        f"\n  [dim]•[/dim] [bold #E0E0E0]Saved File:[/bold #E0E0E0]  "
-                        f"[bold #00FF00]{final_file}[/bold #00FF00]\n"
-                        f"  [dim]•[/dim] [bold #E0E0E0]File Size:[/bold #E0E0E0]   "
-                        f"[bold #38BDF8]{size_mb:.2f} MB[/bold #38BDF8]"
-                    )
+                    size_line = f"  [bold #E0E0E0]File:[/bold #E0E0E0]   [bold #00FF00]{final_file}[/bold #00FF00] [dim]({size_mb:.2f} MB)[/dim]\n"
+                else:
+                    size_line = f"  [bold #E0E0E0]Dir:[/bold #E0E0E0]    [dim]{save_dir}[/dim]\n"
                 card = (
-                    "[bold #00FF00]✅ Media Fetch Complete[/bold #00FF00]\n\n"
-                    f"  [dim]•[/dim] [bold #E0E0E0]Profile:[/bold #E0E0E0]     [bold #FF9800]{profile.label}[/bold #FF9800]\n"
-                    f"  [dim]•[/dim] [bold #E0E0E0]Output Dir:[/bold #E0E0E0]  [dim]{save_dir}[/dim]"
-                    f"{size_line}\n"
-                    f"  [dim]•[/dim] [bold #E0E0E0]Attribution:[/bold #E0E0E0] [dim]Powered by yt-dlp ({ytdlp_ver}) & FFmpeg[/dim]"
+                    "[bold #00FF00]✅ Saved[/bold #00FF00]\n"
+                    f"{size_line}"
+                    f"  [bold #E0E0E0]Mode:[/bold #E0E0E0]   [bold #FF9800]{profile.label}[/bold #FF9800]  "
+                    f"[dim](yt-dlp {ytdlp_ver} · FFmpeg)[/dim]"
                 )
                 console.print()
                 console.print(Panel(card, border_style="#10b981", box=box.ROUNDED, expand=False))
                 return 0
 
-            self._print_diagnostics(errors, js_runtimes, console)
-            print_error("Media fetch failed. See diagnostic details above.")
+            has_hint = self._print_diagnostics(errors, js_runtimes, console)
+            print_error("Media fetch failed. See details above." if has_hint else "Media fetch failed.")
             return 1
         except Exception as exc:
             print_error(f"Media engine execution failed: {exc}")

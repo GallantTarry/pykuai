@@ -11,6 +11,7 @@ class BaseEngine(ABC):
     """
     Base class specification for all plug-in script engines.
     Any engine placed in engines/ is automatically discovered and registered.
+    Engine `name` must be a unique 3-letter lowercase English code (e.g. 'ifc', 'ytd').
     """
     name: str = ""
     description: str = ""

@@ -3,6 +3,7 @@
 PyKuai Engine Dynamic Auto-Discovery & Registry
 """
 import os
+import re
 import sys
 import inspect
 import importlib.util
@@ -10,6 +11,7 @@ from pathlib import Path
 from pykuai.core.base import BaseEngine
 
 _ENGINES_CACHE: dict[str, BaseEngine] = {}
+_ENGINE_CODE_RE = re.compile(r"^[a-z]{3}$")
 
 
 def load_all_engines() -> dict[str, BaseEngine]:
@@ -44,14 +46,22 @@ def load_all_engines() -> dict[str, BaseEngine]:
                         and getattr(attr, "name", "")
                     ):
                         engine_inst = attr()
-                        if engine_inst.name in _ENGINES_CACHE:
+                        code = engine_inst.name
+                        if not _ENGINE_CODE_RE.match(code):
                             from pykuai.core.ui import console
                             console.print(
-                                f"[dim yellow]⚠️ Duplicate command '{engine_inst.name}' "
+                                f"[dim yellow]⚠️ Skipped '{code}' in [{file_path.stem}]: "
+                                "engine code must be 3 lowercase letters (e.g. 'ifc', 'ytd').[/dim yellow]"
+                            )
+                            continue
+                        if code in _ENGINES_CACHE:
+                            from pykuai.core.ui import console
+                            console.print(
+                                f"[dim yellow]⚠️ Duplicate command '{code}' "
                                 f"in [{file_path.stem}] skipped.[/dim yellow]"
                             )
                             continue
-                        _ENGINES_CACHE[engine_inst.name] = engine_inst
+                        _ENGINES_CACHE[code] = engine_inst
         except Exception as e:
             # Isolate engine loading failures so a broken script never crashes the CLI
             from pykuai.core.ui import console
