@@ -1,6 +1,6 @@
 """
 PyKuai (Version 1.2.7)
-Modern Cyber-Dark Script Workbench & Modular CLI Toolkit
+Open-Source Modular Python CLI & TUI Script Toolbox for CS & Developers
 Author: TuKuai | Username: GallantTarry
 "The Lord is my shepherd."
 """

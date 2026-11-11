@@ -5,13 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pykuai"
 version = "1.2.7"
-description = "PyKuai - Modular Cyber-Dark CLI Script Workbench"
+description = "Open-source modular Python CLI & TUI script toolbox for CS & developers"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [
     { name = "TuKuai", email = "tukuai@gallanttarry.dev" }
 ]
-keywords = ["cli", "terminal", "workbench", "cyberpunk", "rich", "automation", "toolkit"]
+keywords = ["python", "cli", "tui", "terminal", "textual", "rich", "automation", "toolbox", "computer-science", "developer-tools"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Environment :: Console",
