@@ -28,13 +28,14 @@ dependencies = [
 
 [project.optional-dependencies]
 office = ["pandas>=1.5.0"]
-media = ["yt-dlp>=2023.0.0"]
+media = ["yt-dlp>=2026.10.0", "yt-dlp-ejs>=0.8.0"]
 cv = ["opencv-python>=4.5.0", "img2pdf>=0.4.0"]
 archive = ["rarfile>=4.0"]
 ui = ["PySide6>=6.5.0"]
 all = [
     "pandas>=1.5.0",
-    "yt-dlp>=2023.0.0",
+    "yt-dlp>=2026.10.0",
+    "yt-dlp-ejs>=0.8.0",
     "opencv-python>=4.5.0",
     "img2pdf>=0.4.0",
     "rarfile>=4.0",

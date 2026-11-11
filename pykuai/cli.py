@@ -59,13 +59,9 @@ def show_help_table():
     table.add_column("Description", style="#E0E0E0")
     table.add_column("Syntax", style="dim #38BDF8")
 
-    engines = load_all_engines()
-    for engine in engines.values():
-        usage = getattr(engine, "usage", "") or f"{engine.name} [options]"
-        table.add_row(engine.name, engine.description, usage)
-
-    table.add_row("cc", "Clear console", "cc")
+    table.add_row("tt", "Tool Tray (launch tools visually)", "tt | tt <tool> \\[args]")
     table.add_row("pp", "Pull Packages (global dependencies)", "pp | pp --check | pp -y")
+    table.add_row("cc", "Clear console", "cc")
     table.add_row("hh", "Help Hub (commands & syntax)", "hh")
     table.add_row("gg", "Exit safely", "gg")
 
@@ -117,6 +113,17 @@ def run_interactive_console(skip_intro: bool = False):
                 show_help_table()
                 continue
 
+            if cmd_lower == "tt" or cmd_lower.startswith("tt "):
+                from pykuai.core.tray import run_tool_tray
+
+                try:
+                    tt_args = [_strip_quotes(tok) for tok in shlex.split(cmd, posix=(os.name != "nt"))[1:]]
+                except Exception:
+                    tt_args = [_strip_quotes(tok) for tok in cmd.split()[1:]]
+                run_tool_tray(console, cli_args=tt_args or None, interactive=True)
+                console.print()
+                continue
+
             if cmd_lower == "pp" or cmd_lower.startswith("pp "):
                 from pykuai.core.deps import run_pull_packages
 
@@ -149,28 +156,14 @@ def run_interactive_console(skip_intro: bool = False):
                 continue
 
             subcmd = tokens[0].lower()
-            subargs = tokens[1:]
 
             eng = get_engine(subcmd)
             if eng:
-                if subargs:
-                    if len(subargs) == 1 and not subargs[0].startswith("-") and hasattr(eng, "launch_with_path"):
-                        eng.launch_with_path(console, subargs[0])
-                    else:
-                        parser = argparse.ArgumentParser(
-                            prog=f"pykuai {eng.name}",
-                            description=eng.description
-                        )
-                        eng.register_args(parser)
-                        try:
-                            args = parser.parse_args(subargs)
-                        except SystemExit:
-                            console.print()
-                            continue
-                        eng.run_direct(args, console)
-                else:
-                    eng.run_interactive(console)
-                console.print()
+                console.print(
+                    f"[dim]› '[bold]{eng.name}[/bold]' lives inside Tool Tray. "
+                    f"Type [bold #00FF00]tt[/bold #00FF00] (visual) or "
+                    f"[bold #00FF00]tt {eng.name}[/bold #00FF00].[/dim]\n"
+                )
             else:
                 console.print(
                     f"[dim]Unknown command: '{tokens[0]}'. Type [bold #00FF00]hh[/bold #00FF00] for usage, "
@@ -195,32 +188,42 @@ def run_direct_cli():
             show_help_table()
             return
 
+        if first_arg == "tt":
+            from pykuai.core.tray import run_tool_tray
+
+            apply_terminal_identity("pykuai")
+            try:
+                exit_code = run_tool_tray(console, cli_args=sys.argv[2:] or None, interactive=False)
+                sys.exit(exit_code)
+            except KeyboardInterrupt:
+                console.print("\n[bold yellow]⚠️ Operation cancelled by user.[/bold yellow]")
+                sys.exit(130)
+
         if first_arg == "pp":
             from pykuai.core.deps import run_pull_packages
 
             apply_terminal_identity("pykuai")
-            exit_code = run_pull_packages(console, cli_args=sys.argv[2:] or None, interactive=True)
-            sys.exit(exit_code)
+            try:
+                exit_code = run_pull_packages(console, cli_args=sys.argv[2:] or None, interactive=True)
+                sys.exit(exit_code)
+            except KeyboardInterrupt:
+                console.print("\n[bold yellow]⚠️ Operation cancelled by user.[/bold yellow]")
+                sys.exit(130)
 
         engine = get_engine(first_arg)
-        if not engine:
-            print_error(f"Unknown engine command: [bold]{first_arg}[/bold]")
-            console.print("[dim]Run [bold #00FF00]pykuai hh[/bold #00FF00] or [bold #00FF00]pykuai --help[/bold #00FF00] to list all available commands.[/dim]")
+        if engine:
+            print_error(
+                f"Tool [bold]{engine.name}[/bold] lives inside Tool Tray ([bold #00FF00]tt[/bold #00FF00])."
+            )
+            console.print(
+                f"[dim]Run [bold #00FF00]pykuai tt[/bold #00FF00] (visual) or "
+                f"[bold #00FF00]pykuai tt {engine.name} ...[/bold #00FF00].[/dim]"
+            )
             sys.exit(1)
 
-        parser = argparse.ArgumentParser(
-            prog=f"pykuai {engine.name}",
-            description=engine.description
-        )
-        engine.register_args(parser)
-
-        try:
-            args = parser.parse_args(sys.argv[2:])
-            exit_code = engine.run_direct(args, console)
-            sys.exit(exit_code)
-        except KeyboardInterrupt:
-            console.print("\n[bold yellow]⚠️ Operation cancelled by user.[/bold yellow]")
-            sys.exit(130)
+        print_error(f"Unknown command: [bold]{first_arg}[/bold]")
+        console.print("[dim]Run [bold #00FF00]pykuai hh[/bold #00FF00] or [bold #00FF00]pykuai --help[/bold #00FF00] to list all available commands.[/dim]")
+        sys.exit(1)
     finally:
         restore_terminal_identity()
 

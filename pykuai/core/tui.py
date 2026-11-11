@@ -12,6 +12,7 @@ from typing import Any
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.content import Content
 from textual.widgets import Button, Input, Static
 
 
@@ -252,9 +253,9 @@ class ToggleChip(Button):
         super().__init__(self._format_label(), **kwargs)
         self.set_class(self._active, "-checked")
 
-    def _format_label(self) -> str:
+    def _format_label(self) -> Content:
         mark = "✓" if self._active else " "
-        return f"[{mark} {self._base_label}]"
+        return Content(f"[{mark} {self._base_label}]")
 
     @property
     def active(self) -> bool:

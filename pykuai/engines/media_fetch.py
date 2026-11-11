@@ -1,0 +1,809 @@
+# -*- coding: utf-8 -*-
+"""
+Stream & Video Downloader Engine (`media`)
+Powered by yt-dlp (https://github.com/yt-dlp/yt-dlp) and FFmpeg.
+
+Supports YouTube (with automated JS runtime & EJS challenge resolution),
+Bilibili, X/Twitter, and 1,000+ extractors with MP4 muxing and MP3/M4A extraction.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from typing import Optional
+
+from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.prompt import Prompt
+
+from pykuai.core.base import BaseEngine
+from pykuai.core.tools import get_ffmpeg, get_js_runtimes, resolve_ytdlp_runner
+from pykuai.core.ui import print_error, print_info, print_step, print_warning
+
+
+@dataclass(frozen=True)
+class FormatProfile:
+    key: str
+    label: str
+    is_audio: bool
+    ffmpeg_expr: str
+    fallback_expr: str
+    extra_args: tuple[str, ...]
+
+
+FORMAT_PROFILES: dict[str, FormatProfile] = {
+    "best": FormatProfile(
+        key="best",
+        label="Best MP4 (Auto Mux)",
+        is_audio=False,
+        ffmpeg_expr="bv*+ba/b",
+        fallback_expr="b[ext=mp4]/b",
+        extra_args=("--merge-output-format", "mp4"),
+    ),
+    "1080p": FormatProfile(
+        key="1080p",
+        label="1080p H.264 MP4",
+        is_audio=False,
+        ffmpeg_expr="bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b",
+        fallback_expr="b[height<=1080][ext=mp4]/b[height<=1080]/b",
+        extra_args=("--merge-output-format", "mp4"),
+    ),
+    "720p": FormatProfile(
+        key="720p",
+        label="720p H.264 MP4",
+        is_audio=False,
+        ffmpeg_expr="bv*[height<=720][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=720]+ba/b[height<=720]/b",
+        fallback_expr="b[height<=720][ext=mp4]/b[height<=720]/b",
+        extra_args=("--merge-output-format", "mp4"),
+    ),
+    "mp3": FormatProfile(
+        key="mp3",
+        label="MP3 Audio (320k)",
+        is_audio=True,
+        ffmpeg_expr="ba/b",
+        fallback_expr="ba/b",
+        extra_args=("--extract-audio", "--audio-format", "mp3", "--audio-quality", "0"),
+    ),
+    "m4a": FormatProfile(
+        key="m4a",
+        label="M4A Audio (AAC)",
+        is_audio=True,
+        ffmpeg_expr="ba[ext=m4a]/ba/b",
+        fallback_expr="ba/b",
+        extra_args=("--extract-audio", "--audio-format", "m4a"),
+    ),
+}
+
+FORMAT_ALIASES: dict[str, str] = {
+    "video": "best",
+    "mp4": "best",
+    "audio": "mp3",
+}
+
+
+def _normalize_format(fmt: str) -> FormatProfile:
+    """Resolve CLI/TUI format names and legacy aliases to a FormatProfile."""
+    clean = (fmt or "best").strip().lower()
+    canonical = FORMAT_ALIASES.get(clean, clean)
+    return FORMAT_PROFILES.get(canonical, FORMAT_PROFILES["best"])
+
+
+def _clean_text(raw: str) -> str:
+    return raw.strip().strip("\"'")
+
+
+def _validate_url(url: str) -> tuple[bool, str]:
+    clean = _clean_text(url)
+    if not clean:
+        return False, "YouTube · Bilibili · X · 1000+ sites"
+    if not re.match(r"^https?://[^\s/$.?#].[^\s]*$", clean, re.IGNORECASE):
+        return False, "Enter a valid http:// or https:// URL"
+    low = clean.lower()
+    if "youtube.com" in low or "youtu.be" in low:
+        return True, "✓ YouTube link (EJS solver ready)"
+    if "bilibili.com" in low or "b23.tv" in low:
+        return True, "✓ Bilibili link detected"
+    if "x.com" in low or "twitter.com" in low:
+        return True, "✓ X / Twitter link detected"
+    return True, "✓ Valid stream URL"
+
+
+def _build_media_studio_app(initial_url: str = ""):
+    """Construct the clickable Cyber-Dark Media Fetch Studio (lazy-loaded)."""
+    from textual.app import ComposeResult
+    from textual.containers import Container, Horizontal, VerticalScroll
+    from textual.widgets import Button, Input, Static
+    from pykuai.core.tui import ActionChip, CYBER_TUI_CSS, PyKuaiStudioApp, ToggleChip
+
+    runner = resolve_ytdlp_runner()
+    ytdlp_lbl = f"yt-dlp {runner[1]}" if runner else "yt-dlp MISSING (run pp)"
+    ffmpeg_lbl = "Ready" if get_ffmpeg() else "Missing"
+    runtimes = get_js_runtimes()
+    js_lbl = ", ".join(rt for rt, _ in runtimes) if runtimes else "None"
+
+    init_clean = _clean_text(initial_url)
+    media_css = CYBER_TUI_CSS + """
+    Input.cyber-input {
+        margin-bottom: 0;
+    }
+    .slim-row {
+        height: 1;
+        layout: horizontal;
+        margin-top: 0;
+        margin-bottom: 0;
+    }
+    .hint-footer {
+        margin-top: 0;
+    }
+    .action-bar {
+        margin-top: 1;
+        margin-bottom: 0;
+    }
+    """
+
+    class MediaStudioApp(PyKuaiStudioApp):
+        CSS = media_css
+
+        def compose(self) -> ComposeResult:
+            ok, status_text = _validate_url(init_clean)
+            status_cls = "status-ok" if ok else ("status-err" if init_clean else "status-dim")
+
+            with Container(id="studio-card"):
+                with VerticalScroll(id="studio-scroll"):
+                    yield Static(
+                        "🎬 Media Fetch Studio  [dim #6b7280]•  Powered by yt-dlp & FFmpeg[/]",
+                        classes="studio-title",
+                    )
+
+                    with Horizontal(classes="field-header"):
+                        yield Static("Source URL", classes="field-label")
+                        yield Static(status_text, id="url-status", classes=status_cls)
+
+                    yield Input(
+                        value=init_clean,
+                        placeholder="Paste video or playlist URL (https://...)...",
+                        id="url-input",
+                        classes="cyber-input",
+                    )
+
+                    with Horizontal(classes="compact-tight"):
+                        yield Static("Video: ", classes="field-label")
+                        yield ToggleChip("Best MP4", value="best", active=True, id="fmt-best")
+                        yield ToggleChip("1080p H.264", value="1080p", active=False, id="fmt-1080p")
+                        yield ToggleChip("720p H.264", value="720p", active=False, id="fmt-720p")
+
+                    with Horizontal(classes="compact-row"):
+                        yield Static("Audio: ", classes="field-label")
+                        yield ToggleChip("MP3 320k", value="mp3", active=False, id="fmt-mp3")
+                        yield ToggleChip("M4A AAC", value="m4a", active=False, id="fmt-m4a")
+
+                    with Horizontal(classes="compact-row"):
+                        yield Static("Scope:", classes="field-label")
+                        yield ToggleChip("Single Video", value="single", active=True, id="scope-single")
+                        yield ToggleChip("Playlist", value="playlist", active=False, id="scope-playlist")
+                        yield ToggleChip("Subtitles", value="subs", active=False, id="opt-subs")
+
+                    with Horizontal(classes="compact-row"):
+                        yield Static("Cookies:", classes="field-label")
+                        yield ToggleChip("None", value="none", active=True, id="ck-none")
+                        yield ToggleChip("Chrome", value="chrome", active=False, id="ck-chrome")
+                        yield ToggleChip("Edge", value="edge", active=False, id="ck-edge")
+                        yield ToggleChip("Firefox", value="firefox", active=False, id="ck-firefox")
+
+                    with Horizontal(classes="compact-tight"):
+                        yield Static("Save To:", classes="field-label")
+                        yield Input(
+                            value=os.getcwd(),
+                            placeholder="Destination folder...",
+                            id="out-input",
+                            classes="cyber-slim",
+                        )
+
+                    with Horizontal(classes="slim-row"):
+                        yield Static("Proxy:", classes="field-label")
+                        yield Input(
+                            placeholder="(Optional: auto env proxy if blank, e.g. http://127.0.0.1:7897)",
+                            id="proxy-input",
+                            classes="cyber-slim",
+                        )
+
+                    yield Static(
+                        f"Engine: {ytdlp_lbl}  •  FFmpeg: {ffmpeg_lbl}  •  JS: {js_lbl}",
+                        id="engine-info",
+                        classes="hint-footer",
+                    )
+
+                yield Static("", id="form-error", classes="hidden-err")
+
+                with Horizontal(classes="action-bar"):
+                    yield ActionChip("⚡ Download", variant_class="-primary", id="btn-run")
+                    yield ActionChip("🔎 List Formats", variant_class="-preset", id="btn-probe")
+                    yield ActionChip("✕ Cancel (Esc)", variant_class="-danger", id="btn-cancel")
+
+        def on_mount(self) -> None:
+            if init_clean:
+                self.query_one("#btn-run", ActionChip).focus()
+            else:
+                self.query_one("#url-input", Input).focus()
+
+        def _set_error(self, message: str = "") -> None:
+            err = self.query_one("#form-error", Static)
+            err.update(message)
+            err.set_classes("shown-err" if message else "hidden-err")
+
+        def _refresh_url_status(self, url_val: str) -> None:
+            ok, msg = _validate_url(url_val)
+            badge = self.query_one("#url-status", Static)
+            badge.update(msg)
+            if ok:
+                badge.set_classes("status-ok")
+            elif _clean_text(url_val):
+                badge.set_classes("status-err")
+            else:
+                badge.set_classes("status-dim")
+
+        def _select_radio_group(self, prefix: str, target_id: str) -> None:
+            for chip in self.query(ToggleChip):
+                if chip.id and chip.id.startswith(prefix):
+                    chip.active = (chip.id == target_id)
+
+        def _active_group_value(self, prefix: str, default: str) -> str:
+            for chip in self.query(ToggleChip):
+                if chip.id and chip.id.startswith(prefix) and chip.active:
+                    return str(chip.value)
+            return default
+
+        def on_input_changed(self, event: Input.Changed) -> None:
+            if event.input.id == "url-input":
+                self._refresh_url_status(event.value)
+                self._set_error("")
+
+        def on_input_submitted(self, event: Input.Submitted) -> None:
+            if event.input.id == "url-input":
+                ok, _ = _validate_url(event.value)
+                if ok:
+                    self.query_one("#btn-run", ActionChip).focus()
+            elif event.input.id in ("out-input", "proxy-input"):
+                self._submit("download")
+
+        def on_button_pressed(self, event: Button.Pressed) -> None:
+            btn = event.button
+            self._set_error("")
+            bid = btn.id or ""
+
+            if bid.startswith("fmt-"):
+                self._select_radio_group("fmt-", bid)
+            elif bid.startswith("scope-"):
+                self._select_radio_group("scope-", bid)
+            elif bid.startswith("ck-"):
+                self._select_radio_group("ck-", bid)
+            elif isinstance(btn, ToggleChip):
+                btn.active = not btn.active
+            elif bid == "btn-run":
+                self._submit("download")
+            elif bid == "btn-probe":
+                self._submit("probe")
+            elif bid == "btn-cancel":
+                self.exit(None)
+
+        def _submit(self, action: str) -> None:
+            url_val = _clean_text(self.query_one("#url-input", Input).value)
+            ok, msg = _validate_url(url_val)
+            if not url_val:
+                self._set_error("Please enter or paste a video/playlist URL.")
+                self.query_one("#url-input", Input).focus()
+                return
+            if not ok:
+                self._set_error(msg)
+                self.query_one("#url-input", Input).focus()
+                return
+
+            fmt_key = self._active_group_value("fmt-", "best")
+            is_playlist = self._active_group_value("scope-", "single") == "playlist"
+            subtitles = self.query_one("#opt-subs", ToggleChip).active
+            cookies_browser = self._active_group_value("ck-", "none")
+            raw_out = _clean_text(self.query_one("#out-input", Input).value) or "."
+            out_dir = os.path.abspath(raw_out)
+            proxy_url = _clean_text(self.query_one("#proxy-input", Input).value)
+
+            self.exit(
+                (action, url_val, fmt_key, is_playlist, subtitles, cookies_browser, "", out_dir, proxy_url)
+            )
+
+    return MediaStudioApp()
+
+
+def _launch_media_studio(
+    initial_url: str = "",
+) -> Optional[tuple[str, str, str, bool, bool, str, str, str, str]]:
+    """Launch clickable Media Fetch Studio inside interactive TTY."""
+    app = _build_media_studio_app(initial_url=initial_url)
+    result = app.run(mouse=True)
+    sys.stdout.flush()
+    return result
+
+
+def _build_ytdlp_command(
+    runner_cmd: list[str],
+    url: str,
+    profile: FormatProfile,
+    save_dir: str,
+    ffmpeg_bin: Optional[str],
+    js_runtimes: list[tuple[str, str]],
+    *,
+    is_playlist: bool = False,
+    subtitles: bool = False,
+    cookies_browser: str = "none",
+    cookies_file: str = "",
+    proxy_url: str = "",
+    list_formats: bool = False,
+    clear_cache: bool = False,
+    use_fallback_format: bool = False,
+    fallback_client: bool = False,
+) -> list[str]:
+    """Assemble yt-dlp CLI arguments with JS runtime & EJS solver configuration."""
+    cmd = list(runner_cmd)
+    cmd.extend([
+        "--encoding", "utf-8",
+        "--windows-filenames",
+        "--no-mtime",
+        "--retries", "5",
+        "--fragment-retries", "5",
+        "--file-access-retries", "3",
+        "--remote-components", "ejs:github",
+    ])
+
+    for rt_name, rt_path in js_runtimes:
+        cmd.extend(["--js-runtimes", f"{rt_name}:{rt_path}"])
+
+    if ffmpeg_bin:
+        cmd.extend(["--ffmpeg-location", ffmpeg_bin])
+
+    if clear_cache:
+        cmd.append("--rm-cache-dir")
+
+    if fallback_client:
+        cmd.extend(["--extractor-args", "youtube:player_client=tv_simply,tv,web_safari"])
+
+    if cookies_browser and cookies_browser.lower() != "none":
+        cmd.extend(["--cookies-from-browser", cookies_browser.lower()])
+    elif cookies_file:
+        cmd.extend(["--cookies", os.path.abspath(_clean_text(cookies_file))])
+
+    if proxy_url:
+        cmd.extend(["--proxy", proxy_url])
+
+    cmd.append("--yes-playlist" if is_playlist else "--no-playlist")
+
+    if list_formats:
+        cmd.extend(["-F", url])
+        return cmd
+
+    cmd.extend([
+        "--newline",
+        "--concurrent-fragments", "4",
+        "-o", os.path.join(save_dir, "%(title)s.%(ext)s"),
+    ])
+
+    if ffmpeg_bin and not use_fallback_format:
+        cmd.extend(["-f", profile.ffmpeg_expr, *profile.extra_args])
+    elif profile.is_audio and ffmpeg_bin:
+        cmd.extend(["-f", profile.fallback_expr, *profile.extra_args])
+    else:
+        cmd.extend(["-f", profile.fallback_expr])
+
+    if subtitles:
+        cmd.extend(["--write-subs", "--write-auto-subs", "--sub-langs", "en.*,zh.*", "--embed-subs"])
+
+    cmd.append(url)
+    return cmd
+
+
+class MediaFetchEngine(BaseEngine):
+    name = "media"
+    description = "Download videos or extract audio via yt-dlp & FFmpeg (YouTube, Bilibili, X, etc.)"
+    usage = "tt media | tt media <url> [-f best|1080p|720p|mp3|m4a] [-o dir]"
+    category = "Media & Video"
+    requires = ["yt-dlp>=2026.10.0", "yt-dlp-ejs>=0.8.0"]
+
+    def register_args(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("url", nargs="?", default="", help="Target stream or playlist URL")
+        parser.add_argument(
+            "-f", "--format",
+            choices=["best", "1080p", "720p", "mp3", "m4a", "video", "audio", "mp4"],
+            default="best",
+            help="Download profile: best (MP4), 1080p, 720p, mp3 (audio), m4a (audio)",
+        )
+        parser.add_argument("-p", "--playlist", action="store_true", help="Download full playlist or collection")
+        parser.add_argument("--subs", action="store_true", help="Download & embed English/Chinese subtitles")
+        parser.add_argument(
+            "--cookies-from-browser",
+            choices=["none", "chrome", "edge", "firefox", "brave"],
+            default="none",
+            help="Read session cookies from your local browser if a site asks to sign in",
+        )
+        parser.add_argument("--cookies", default="", help="Path to exported Netscape cookies.txt")
+        parser.add_argument("--proxy", default="", help="Override HTTP/SOCKS proxy URL")
+        parser.add_argument("-F", "--list-formats", action="store_true", help="Inspect available streams without downloading")
+        parser.add_argument("-o", "--output-dir", default=".", help="Output directory (default: current directory)")
+
+    def run_direct(self, args: argparse.Namespace, console: Console) -> int:
+        url = _clean_text(getattr(args, "url", "") or "")
+        if not url:
+            return self.run_interactive(console)
+
+        save_dir = os.path.abspath(_clean_text(getattr(args, "output_dir", ".") or "."))
+        if getattr(args, "list_formats", False):
+            return self._list_formats(
+                url=url,
+                is_playlist=getattr(args, "playlist", False),
+                cookies_browser=getattr(args, "cookies_from_browser", "none"),
+                cookies_file=getattr(args, "cookies", ""),
+                proxy_url=getattr(args, "proxy", ""),
+                console=console,
+            )
+
+        return self._download(
+            url=url,
+            fmt_key=getattr(args, "format", "best"),
+            is_playlist=getattr(args, "playlist", False),
+            subtitles=getattr(args, "subs", False),
+            cookies_browser=getattr(args, "cookies_from_browser", "none"),
+            cookies_file=getattr(args, "cookies", ""),
+            save_dir=save_dir,
+            proxy_url=getattr(args, "proxy", ""),
+            console=console,
+        )
+
+    def launch_with_path(self, console: Console, path: str) -> int:
+        """Open interactive Studio pre-loaded with a positional URL in TTY, or download directly."""
+        from pykuai.core.tui import is_interactive_tty
+
+        clean = _clean_text(path)
+        if is_interactive_tty():
+            return self.run_interactive(console, initial_url=clean)
+        return self._download(
+            url=clean,
+            fmt_key="best",
+            is_playlist=False,
+            subtitles=False,
+            cookies_browser="none",
+            cookies_file="",
+            save_dir=os.getcwd(),
+            proxy_url="",
+            console=console,
+        )
+
+    def run_interactive(self, console: Console, initial_url: str = "") -> int:
+        from pykuai.core.tui import is_interactive_tty
+
+        if is_interactive_tty():
+            selection = _launch_media_studio(initial_url=initial_url)
+            if not selection:
+                console.print("[dim]› Cancelled.[/dim]")
+                return 0
+            (
+                action,
+                url,
+                fmt_key,
+                is_playlist,
+                subtitles,
+                cookies_browser,
+                cookies_file,
+                save_dir,
+                proxy_url,
+            ) = selection
+            if action == "probe":
+                return self._list_formats(
+                    url=url,
+                    is_playlist=is_playlist,
+                    cookies_browser=cookies_browser,
+                    cookies_file=cookies_file,
+                    proxy_url=proxy_url,
+                    console=console,
+                )
+            return self._download(
+                url=url,
+                fmt_key=fmt_key,
+                is_playlist=is_playlist,
+                subtitles=subtitles,
+                cookies_browser=cookies_browser,
+                cookies_file=cookies_file,
+                save_dir=save_dir,
+                proxy_url=proxy_url,
+                console=console,
+            )
+
+        # Fallback prompt path for non-TTY / piped environments
+        console.print("[bold #FF9800]🎬 Launch Media Fetch Engine (Powered by yt-dlp & FFmpeg)[/bold #FF9800]")
+        url = _clean_text(initial_url or Prompt.ask("[#10b981]?[/#10b981] Video or playlist URL"))
+        if not url:
+            print_error("No URL provided.")
+            return 1
+
+        mode = Prompt.ask(
+            "[#10b981]?[/#10b981] Format profile [1: Best MP4, 2: 1080p, 3: 720p, 4: MP3, 5: M4A]",
+            choices=["1", "2", "3", "4", "5"],
+            default="1",
+        )
+        fmt_map = {"1": "best", "2": "1080p", "3": "720p", "4": "mp3", "5": "m4a"}
+
+        scope = Prompt.ask(
+            "[#10b981]?[/#10b981] Scope [1: Single video, 2: Playlist]",
+            choices=["1", "2"],
+            default="1",
+        )
+        out_raw = Prompt.ask("[#10b981]?[/#10b981] Output directory", default=".")
+
+        return self._download(
+            url=url,
+            fmt_key=fmt_map[mode],
+            is_playlist=(scope == "2"),
+            subtitles=False,
+            cookies_browser="none",
+            cookies_file="",
+            save_dir=os.path.abspath(_clean_text(out_raw) or "."),
+            proxy_url="",
+            console=console,
+        )
+
+    def _run_subprocess(
+        self,
+        cmd: list[str],
+        console: Console,
+        *,
+        verbose_all: bool = False,
+    ) -> tuple[int, list[str], list[str], Optional[str]]:
+        """Execute yt-dlp with UTF-8 output streaming, clean progress filtering, and error capture."""
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
+
+        errors: list[str] = []
+        warnings: list[str] = []
+        final_file: Optional[str] = None
+        last_pct_bucket = -1
+
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            env=env,
+        )
+
+        assert process.stdout is not None
+        for line_bytes in iter(process.stdout.readline, b""):
+            line = line_bytes.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+
+            # Track produced destination filenames cleanly
+            if line.startswith("[Merger] Merging formats into "):
+                final_file = _clean_text(line.split("Merging formats into ", 1)[1])
+            elif line.startswith("[ExtractAudio] Destination: "):
+                final_file = _clean_text(line.split("Destination: ", 1)[1])
+            elif line.startswith("[download] Destination: "):
+                final_file = _clean_text(line.split("Destination: ", 1)[1])
+            elif line.startswith("[download] ") and " has already been downloaded" in line:
+                final_file = _clean_text(line[len("[download] ") :].split(" has already been downloaded", 1)[0])
+
+            if line.startswith("ERROR:"):
+                errors.append(line)
+                console.print(f"[bold #FF5252]  {line}[/bold #FF5252]")
+                continue
+
+            if line.startswith("WARNING:"):
+                warnings.append(line)
+                if "No title found" not in line:
+                    console.print(f"[#FF9800]  {line}[/#FF9800]")
+                continue
+
+            if verbose_all:
+                console.print(line, markup=False)
+                continue
+
+            if line.startswith("[download]"):
+                pct_match = re.search(r"(\d+(?:\.\d+)?)%", line)
+                if pct_match and "100%" not in line and "in 00:" not in line:
+                    bucket = int(float(pct_match.group(1)) // 20)
+                    if bucket == last_pct_bucket:
+                        continue
+                    last_pct_bucket = bucket
+                elif "Destination:" in line or "100%" in line:
+                    last_pct_bucket = -1
+                console.print(f"[#10b981]  {line}[/#10b981]", markup=False)
+            elif line.startswith(("[Merger]", "[ExtractAudio]", "[EmbedSubtitle]", "[info]", "[youtube] [jsc:")):
+                console.print(f"[#38BDF8]  {line}[/#38BDF8]", markup=False)
+
+        process.wait()
+        return process.returncode, errors, warnings, final_file
+
+    def _print_diagnostics(self, errors: list[str], js_runtimes: list[tuple[str, str]], console: Console) -> None:
+        """Render actionable remediation hints tailored to the captured yt-dlp failure."""
+        joined = "\n".join(errors).lower()
+
+        if "sign in to confirm" in joined or "login_required" in joined:
+            console.print()
+            console.print(
+                Panel(
+                    "[bold #FF9800]YouTube Bot / Sign-In Check Triggered[/bold #FF9800]\n\n"
+                    "YouTube rejected unauthenticated requests from your current IP or proxy node.\n"
+                    "Recommended fixes:\n"
+                    "  [dim]1.[/dim] Select [bold #00FF00]Chrome / Edge / Firefox[/bold #00FF00] under "
+                    "[bold]Cookies[/bold] in Media Studio (or pass [bold]--cookies-from-browser chrome[/bold])\n"
+                    "  [dim]2.[/dim] Pass exported [bold]--cookies cookies.txt[/bold]\n"
+                    "  [dim]3.[/dim] Switch to a cleaner proxy exit node via [bold]--proxy[/bold]",
+                    border_style="#FF9800",
+                    box=box.ROUNDED,
+                    expand=False,
+                )
+            )
+            return
+
+        if "http error 403" in joined or "signature" in joined or "challenge" in joined:
+            js_tip = (
+                f"Detected JS runtime: {', '.join(r for r, _ in js_runtimes)}."
+                if js_runtimes
+                else "No JS runtime found — install Node.js or Deno, and run `pykuai pp`."
+            )
+            print_warning(
+                f"Stream CDN returned 403 or challenge error. {js_tip} "
+                "Try upgrading via `pykuai pp -U` or selecting Browser Cookies."
+            )
+            return
+
+        if "timed out" in joined or "urlopen error" in joined or "proxy" in joined:
+            print_warning("Network or proxy timeout. Verify connectivity or override via `--proxy`.")
+
+    def _list_formats(
+        self,
+        url: str,
+        is_playlist: bool,
+        cookies_browser: str,
+        cookies_file: str,
+        proxy_url: str,
+        console: Console,
+    ) -> int:
+        runner = resolve_ytdlp_runner()
+        if not runner:
+            print_error("yt-dlp is not available. Run `pykuai pp -y` to install `yt-dlp`.")
+            return 1
+
+        runner_cmd, ytdlp_ver = runner
+        ffmpeg_bin = get_ffmpeg()
+        js_runtimes = get_js_runtimes()
+
+        print_step(f"Probing streams via [bold #00FF00]yt-dlp {ytdlp_ver}[/bold #00FF00]: [bold]{url}[/bold]")
+        cmd = _build_ytdlp_command(
+            runner_cmd,
+            url,
+            FORMAT_PROFILES["best"],
+            os.getcwd(),
+            ffmpeg_bin,
+            js_runtimes,
+            is_playlist=is_playlist,
+            cookies_browser=cookies_browser,
+            cookies_file=cookies_file,
+            proxy_url=proxy_url,
+            list_formats=True,
+        )
+        rc, errors, _, _ = self._run_subprocess(cmd, console, verbose_all=True)
+        if rc != 0:
+            self._print_diagnostics(errors, js_runtimes, console)
+            return 1
+        return 0
+
+    def _download(
+        self,
+        url: str,
+        fmt_key: str,
+        is_playlist: bool,
+        subtitles: bool,
+        cookies_browser: str,
+        cookies_file: str,
+        save_dir: str,
+        proxy_url: str,
+        console: Console,
+    ) -> int:
+        runner = resolve_ytdlp_runner()
+        if not runner:
+            print_error("yt-dlp not found. Run `pykuai pp` (Pull Packages) to install `yt-dlp`.")
+            return 1
+
+        runner_cmd, ytdlp_ver = runner
+        ffmpeg_bin = get_ffmpeg()
+        js_runtimes = get_js_runtimes()
+        profile = _normalize_format(fmt_key)
+
+        if profile.is_audio and not ffmpeg_bin:
+            print_error("FFmpeg is required for MP3/M4A audio extraction. Check `pykuai/tools/` or PATH.")
+            return 1
+
+        os.makedirs(save_dir, exist_ok=True)
+        rt_desc = ", ".join(r for r, _ in js_runtimes) if js_runtimes else "none"
+        print_step(
+            f"Fetching via [bold #00FF00]yt-dlp {ytdlp_ver}[/bold #00FF00] "
+            f"[dim](JS: {rt_desc}, FFmpeg: {'yes' if ffmpeg_bin else 'no'})[/dim]"
+        )
+        print_info(f"Target: [bold]{url}[/bold]")
+        print_info(f"Profile: [bold #00FF00]{profile.label}[/bold #00FF00]")
+
+        try:
+            cmd = _build_ytdlp_command(
+                runner_cmd,
+                url,
+                profile,
+                save_dir,
+                ffmpeg_bin,
+                js_runtimes,
+                is_playlist=is_playlist,
+                subtitles=subtitles,
+                cookies_browser=cookies_browser,
+                cookies_file=cookies_file,
+                proxy_url=proxy_url,
+            )
+            rc, errors, _, final_file = self._run_subprocess(cmd, console)
+
+            # Safe 1-shot retry for transient CDN 403 / stale extractor cache / format incompatibility
+            if rc != 0:
+                joined_err = "\n".join(errors).lower()
+                is_auth_gate = "sign in to confirm" in joined_err or "login_required" in joined_err
+                transient_fail = any(
+                    tok in joined_err
+                    for tok in ("http error 403", "requested format is not available", "signature solving failed")
+                )
+                if not is_auth_gate and transient_fail:
+                    print_warning("Transient stream error — clearing yt-dlp cache and retrying compatible stream...")
+                    retry_cmd = _build_ytdlp_command(
+                        runner_cmd,
+                        url,
+                        profile,
+                        save_dir,
+                        ffmpeg_bin,
+                        js_runtimes,
+                        is_playlist=is_playlist,
+                        subtitles=subtitles,
+                        cookies_browser=cookies_browser,
+                        cookies_file=cookies_file,
+                        proxy_url=proxy_url,
+                        clear_cache=True,
+                        use_fallback_format=True,
+                        fallback_client=True,
+                    )
+                    rc, retry_errors, _, retry_file = self._run_subprocess(retry_cmd, console)
+                    errors = retry_errors or errors
+                    final_file = retry_file or final_file
+
+            if rc == 0:
+                size_line = ""
+                if final_file and os.path.isfile(final_file):
+                    size_mb = os.path.getsize(final_file) / (1024 * 1024)
+                    size_line = (
+                        f"\n  [dim]•[/dim] [bold #E0E0E0]Saved File:[/bold #E0E0E0]  "
+                        f"[bold #00FF00]{final_file}[/bold #00FF00]\n"
+                        f"  [dim]•[/dim] [bold #E0E0E0]File Size:[/bold #E0E0E0]   "
+                        f"[bold #38BDF8]{size_mb:.2f} MB[/bold #38BDF8]"
+                    )
+                card = (
+                    "[bold #00FF00]✅ Media Fetch Complete[/bold #00FF00]\n\n"
+                    f"  [dim]•[/dim] [bold #E0E0E0]Profile:[/bold #E0E0E0]     [bold #FF9800]{profile.label}[/bold #FF9800]\n"
+                    f"  [dim]•[/dim] [bold #E0E0E0]Output Dir:[/bold #E0E0E0]  [dim]{save_dir}[/dim]"
+                    f"{size_line}\n"
+                    f"  [dim]•[/dim] [bold #E0E0E0]Attribution:[/bold #E0E0E0] [dim]Powered by yt-dlp ({ytdlp_ver}) & FFmpeg[/dim]"
+                )
+                console.print()
+                console.print(Panel(card, border_style="#10b981", box=box.ROUNDED, expand=False))
+                return 0
+
+            self._print_diagnostics(errors, js_runtimes, console)
+            print_error("Media fetch failed. See diagnostic details above.")
+            return 1
+        except Exception as exc:
+            print_error(f"Media engine execution failed: {exc}")
+            return 1

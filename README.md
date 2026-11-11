@@ -18,13 +18,15 @@ pykuai/
 │   │   ├── base.py             # BaseEngine contract (name, description, usage, requires, args, direct, interactive)
 │   │   ├── deps.py             # Global Pull Packages (`pp`) dependency scanner & installer
 │   │   ├── registry.py         # Dynamic engine auto-discovery & registration
+│   │   ├── tray.py             # Visual Tool Tray (`tt`) launcher & subcommand dispatcher
 │   │   ├── intro.py            # High-DPI desktop pixel snake intro animation
 │   │   ├── ui.py               # Cyber-dark Rich theme, banner, progress bars & identity hooks
 │   │   ├── tui.py              # Mouse-clickable interactive terminal UI widgets (Textual)
 │   │   ├── watchdog.py         # Background Windows Terminal settings.json lifecycle guard
 │   │   └── tools.py            # Bundled & system binary locator (FFmpeg, UnRAR, yt-dlp)
 │   ├── engines/                # Plug-and-play script engines
-│   │   └── ico_maker.py        # ico: PNG to multi-resolution Windows ICO container
+│   │   ├── ico_maker.py        # ico: PNG to multi-resolution Windows ICO container
+│   │   └── media_fetch.py      # media: Video & audio downloader (powered by yt-dlp & FFmpeg)
 │   └── assets/                 # Multi-res High-DPI icon assets
 ```
 
@@ -42,21 +44,29 @@ pykuai --fast
 ```
 
 Built-in console commands (strictly 1-to-1 unique):
-* `hh` — Help Hub (show all registered engines, syntax, and usage examples)
+* `tt` — Tool Tray (browse & launch script tools visually, or run `tt <tool> [args]`)
+* `hh` — Help Hub (show global commands and syntax)
 * `cc` — Clear console and refresh banner
 * `pp` — Pull Packages (inspect and install global dependencies visually)
 * `gg` — Exit safely (automatically restores terminal title & icon)
 * Drag and drop an image file directly into the console to invoke the `ico` engine automatically
 
 ### 2. Direct CLI Mode (`pykuai <command>`)
-Execute engines directly from the shell without entering the REPL—ideal for scripts and pipelines:
+Execute tools directly from the shell without entering the REPL—ideal for scripts and pipelines:
 
 ```bash
+# Open interactive Tool Tray (or list tools when piped)
+pykuai tt
+
 # Convert a PNG to a multi-resolution Windows .ico file
-pykuai ico logo.png
+pykuai tt ico logo.png
 
 # Specify custom layer sizes and output path
-pykuai ico logo.png -s 16,32,48,256 -o app.ico
+pykuai tt ico logo.png -s 16,32,48,256 -o app.ico
+
+# Download video (MP4) or extract MP3 audio via yt-dlp & FFmpeg
+pykuai tt media "https://www.youtube.com/watch?v=..." -f best
+pykuai tt media "https://www.youtube.com/watch?v=..." -f mp3 -o ./music
 
 # Inspect or install global script dependencies
 pykuai pp --check
@@ -95,7 +105,7 @@ from pykuai.core.base import BaseEngine
 class MyToolEngine(BaseEngine):
     name = "pdf"
     description = "Merge or split PDF documents"
-    usage = "pdf <files> [-o output]"
+    usage = "tt pdf | tt pdf <files> [-o output]"
     category = "Document"
     requires = ["pypdf>=3.0.0"]
 
@@ -117,4 +127,12 @@ class MyToolEngine(BaseEngine):
         return 0
 ```
 
-Save the file and launch `pykuai`. Auto-discovery picks it up immediately and lists it in `hh`, and `pp` detects its `requires` / imports automatically without modifying any core files.
+Save the file and launch `pykuai`. Auto-discovery picks it up immediately inside Tool Tray (`tt`), and `pp` detects its `requires` / imports automatically without modifying any core files.
+
+---
+
+## 🙏 Third-Party Tools & Attribution
+
+* **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** — Stream extraction engine powering `pykuai tt media`
+* **[FFmpeg](https://ffmpeg.org/)** — Video/audio muxing and MP3/M4A transcoding engine
+* **[Textual](https://textual.textualize.io/)** & **[Rich](https://github.com/Textualize/rich)** — Cyber-Dark interactive TUI framework

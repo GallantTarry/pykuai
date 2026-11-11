@@ -253,7 +253,7 @@ def _launch_ico_studio(initial_path: str = "") -> tuple[str, list[int], str | No
 class IcoMakerEngine(BaseEngine):
     name = "ico"
     description = "Convert PNG/image to multi-resolution Windows ICO container"
-    usage = "ico | ico <image> [-s sizes] [-o output]"
+    usage = "tt ico | tt ico <image> [-s sizes] [-o output]"
     category = "Media & Image"
     requires = ["Pillow>=9.0.0"]
 
