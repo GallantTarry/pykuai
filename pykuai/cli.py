@@ -65,7 +65,8 @@ def show_help_table():
         table.add_row(engine.name, engine.description, usage)
 
     table.add_row("cc", "Clear console", "cc")
-    table.add_row("help", "Show available commands and syntax", "help")
+    table.add_row("pp", "Pull Packages (global dependencies)", "pp | pp --check | pp -y")
+    table.add_row("hh", "Help Hub (commands & syntax)", "hh")
     table.add_row("gg", "Exit safely", "gg")
 
     console.print()
@@ -87,7 +88,7 @@ def run_interactive_console(skip_intro: bool = False):
         apply_terminal_identity("pykuai")
         print_banner()
 
-        console.print("[dim]💡 Type [bold #00FF00]help[/bold #00FF00] to see commands & syntax, or [bold red]gg[/bold red] to exit[/dim]\n")
+        console.print("[dim]💡 Type [bold #00FF00]hh[/bold #00FF00] to see commands & syntax, or [bold red]gg[/bold red] to exit[/dim]\n")
 
         while True:
             try:
@@ -109,11 +110,19 @@ def run_interactive_console(skip_intro: bool = False):
                 clear_screen()
                 apply_terminal_identity("pykuai")
                 print_banner()
-                console.print("[dim]💡 Type [bold #00FF00]help[/bold #00FF00] to see commands & syntax, or [bold red]gg[/bold red] to exit[/dim]\n")
+                console.print("[dim]💡 Type [bold #00FF00]hh[/bold #00FF00] to see commands & syntax, or [bold red]gg[/bold red] to exit[/dim]\n")
                 continue
 
-            if cmd_lower == "help":
+            if cmd_lower == "hh":
                 show_help_table()
+                continue
+
+            if cmd_lower == "pp" or cmd_lower.startswith("pp "):
+                from pykuai.core.deps import run_pull_packages
+
+                pp_args = shlex.split(cmd, posix=(os.name != "nt"))[1:]
+                run_pull_packages(console, cli_args=pp_args or None, interactive=True)
+                console.print()
                 continue
 
             # Auto drag-and-drop detection: dropping an image triggers the ICO engine
@@ -122,9 +131,12 @@ def run_interactive_console(skip_intro: bool = False):
                 if os.path.exists(raw_path):
                     eng = get_engine("ico")
                     if eng:
-                        console.print("[dim]› Image drop detected, running ICO engine...[/dim]")
-                        args = argparse.Namespace(image=raw_path, sizes="16,32,48,64,128,256", output=None)
-                        eng.run_direct(args, console)
+                        console.print("[dim]› Image drop detected, opening ICO engine...[/dim]")
+                        if hasattr(eng, "launch_with_path"):
+                            eng.launch_with_path(console, raw_path)
+                        else:
+                            args = argparse.Namespace(image=raw_path, sizes="16,32,48,64,128,256", output=None)
+                            eng.run_direct(args, console)
                         console.print()
                         continue
 
@@ -142,23 +154,26 @@ def run_interactive_console(skip_intro: bool = False):
             eng = get_engine(subcmd)
             if eng:
                 if subargs:
-                    parser = argparse.ArgumentParser(
-                        prog=f"pykuai {eng.name}",
-                        description=eng.description
-                    )
-                    eng.register_args(parser)
-                    try:
-                        args = parser.parse_args(subargs)
-                    except SystemExit:
-                        console.print()
-                        continue
-                    eng.run_direct(args, console)
+                    if len(subargs) == 1 and not subargs[0].startswith("-") and hasattr(eng, "launch_with_path"):
+                        eng.launch_with_path(console, subargs[0])
+                    else:
+                        parser = argparse.ArgumentParser(
+                            prog=f"pykuai {eng.name}",
+                            description=eng.description
+                        )
+                        eng.register_args(parser)
+                        try:
+                            args = parser.parse_args(subargs)
+                        except SystemExit:
+                            console.print()
+                            continue
+                        eng.run_direct(args, console)
                 else:
                     eng.run_interactive(console)
                 console.print()
             else:
                 console.print(
-                    f"[dim]Unknown command: '{tokens[0]}'. Type [bold #00FF00]help[/bold #00FF00] for usage, "
+                    f"[dim]Unknown command: '{tokens[0]}'. Type [bold #00FF00]hh[/bold #00FF00] for usage, "
                     "or [bold red]gg[/bold red] to exit.[/dim]\n"
                 )
     finally:
@@ -174,16 +189,23 @@ def run_direct_cli():
             console.print(f"[bold #FF9800]pykuai[/bold #FF9800] version [bold #00FF00]{__version__}[/bold #00FF00]")
             return
 
-        if first_arg in ["-h", "--help", "help"]:
+        if first_arg in ["-h", "--help", "hh"]:
             apply_terminal_identity("pykuai")
             print_banner()
             show_help_table()
             return
 
+        if first_arg == "pp":
+            from pykuai.core.deps import run_pull_packages
+
+            apply_terminal_identity("pykuai")
+            exit_code = run_pull_packages(console, cli_args=sys.argv[2:] or None, interactive=True)
+            sys.exit(exit_code)
+
         engine = get_engine(first_arg)
         if not engine:
             print_error(f"Unknown engine command: [bold]{first_arg}[/bold]")
-            console.print("[dim]Run [bold #00FF00]pykuai --help[/bold #00FF00] to list all available commands.[/dim]")
+            console.print("[dim]Run [bold #00FF00]pykuai hh[/bold #00FF00] or [bold #00FF00]pykuai --help[/bold #00FF00] to list all available commands.[/dim]")
             sys.exit(1)
 
         parser = argparse.ArgumentParser(

@@ -66,6 +66,7 @@ def _spawn_watchdog(settings_path: str):
         DETACHED_PROCESS = 0x00000008
         subprocess.Popen(
             [sys.executable, "-m", "pykuai.core.watchdog", str(os.getpid()), settings_path],
+            cwd=os.path.expanduser("~"),
             creationflags=CREATE_NO_WINDOW | DETACHED_PROCESS,
             close_fds=True
         )

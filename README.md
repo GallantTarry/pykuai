@@ -15,10 +15,12 @@ pykuai/
 ├── pykuai/
 │   ├── cli.py                  # Master console: Interactive REPL vs Direct CLI execution
 │   ├── core/
-│   │   ├── base.py             # BaseEngine contract (name, description, usage, args, direct, interactive)
+│   │   ├── base.py             # BaseEngine contract (name, description, usage, requires, args, direct, interactive)
+│   │   ├── deps.py             # Global Pull Packages (`pp`) dependency scanner & installer
 │   │   ├── registry.py         # Dynamic engine auto-discovery & registration
 │   │   ├── intro.py            # High-DPI desktop pixel snake intro animation
 │   │   ├── ui.py               # Cyber-dark Rich theme, banner, progress bars & identity hooks
+│   │   ├── tui.py              # Mouse-clickable interactive terminal UI widgets (Textual)
 │   │   ├── watchdog.py         # Background Windows Terminal settings.json lifecycle guard
 │   │   └── tools.py            # Bundled & system binary locator (FFmpeg, UnRAR, yt-dlp)
 │   ├── engines/                # Plug-and-play script engines
@@ -40,8 +42,9 @@ pykuai --fast
 ```
 
 Built-in console commands (strictly 1-to-1 unique):
-* `help` — Show all registered engines, syntax, and usage examples
+* `hh` — Help Hub (show all registered engines, syntax, and usage examples)
 * `cc` — Clear console and refresh banner
+* `pp` — Pull Packages (inspect and install global dependencies visually)
 * `gg` — Exit safely (automatically restores terminal title & icon)
 * Drag and drop an image file directly into the console to invoke the `ico` engine automatically
 
@@ -55,8 +58,12 @@ pykuai ico logo.png
 # Specify custom layer sizes and output path
 pykuai ico logo.png -s 16,32,48,256 -o app.ico
 
+# Inspect or install global script dependencies
+pykuai pp --check
+pykuai pp -y
+
 # Show CLI help or version
-pykuai --help
+pykuai hh
 pykuai --version
 ```
 
@@ -90,6 +97,7 @@ class MyToolEngine(BaseEngine):
     description = "Merge or split PDF documents"
     usage = "pdf <files> [-o output]"
     category = "Document"
+    requires = ["pypdf>=3.0.0"]
 
     def register_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("files", nargs="*", help="Input PDF file paths")
@@ -102,8 +110,11 @@ class MyToolEngine(BaseEngine):
         return 0
 
     def run_interactive(self, console: Console) -> int:
-        console.print("[bold #FF9800]Running interactive mode...[/bold #FF9800]")
+        from pykuai.core.tui import pick_one
+        mode = pick_one("Select PDF Action", [("Merge PDFs", "merge"), ("Split PDF", "split")])
+        if mode:
+            console.print(f"[#00FF00]Selected mode: {mode}[/#00FF00]")
         return 0
 ```
 
-Save the file and launch `pykuai`. Auto-discovery picks it up immediately and lists it in `help` without modifying any core files.
+Save the file and launch `pykuai`. Auto-discovery picks it up immediately and lists it in `hh`, and `pp` detects its `requires` / imports automatically without modifying any core files.
