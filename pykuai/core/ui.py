@@ -216,13 +216,12 @@ def print_banner():
 def _build_console_greeting() -> tuple[Text, Text]:
     """Build the playful two-line encounter prompt shown on console startup."""
     line1 = Text.assemble(
-        ("🐍 ", ""),
         ("Whoa! ", "bold #FF9800"),
         ("pykuai", "bold #00FF00"),
         (" just slithered into your console!", "#E0E0E0"),
     )
     line2 = Text.assemble(
-        ("   Type ", "#9ca3af"),
+        ("Type ", "#9ca3af"),
         ("hh", "bold #00FF00"),
         (" for backup & tools — or ", "#9ca3af"),
         ("gg", "bold #FF5252"),
@@ -283,7 +282,7 @@ def play_console_greeting(skip_animation: bool = False) -> None:
                     skipped = _wait_or_skip(0.22)
 
                 if not skipped:
-                    for idx in range(4, len(line2.plain) + 1):
+                    for idx in range(1, len(line2.plain) + 1):
                         ch = line2.plain[idx - 1]
                         live.update(Text.assemble(line1, "\n", line2[:idx], cursor), refresh=True)
                         if not ch.isspace():
