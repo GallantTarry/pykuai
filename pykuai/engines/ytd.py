@@ -27,6 +27,7 @@ from rich.prompt import Prompt
 
 from pykuai.core.base import BaseEngine
 from pykuai.core.tools import ensure_ffmpeg, get_ffmpeg, get_js_runtimes, resolve_ytdlp_runner
+from pykuai.core.yt_auth import login_youtube_and_save_cookies
 from pykuai.core.ui import print_error, print_info, print_step, print_warning
 
 
@@ -201,6 +202,12 @@ def _is_cookie_db_error(errors: list[str]) -> bool:
     return False
 
 
+def _is_bot_check_error(errors: list[str]) -> bool:
+    """Detect YouTube sign-in / bot verification blocks."""
+    joined = "\n".join(errors).lower()
+    return "sign in to confirm" in joined or "login_required" in joined or "age-restricted" in joined
+
+
 def _validate_connection_options(cookies_browser: str, cookies_file: str, proxy_url: str) -> str:
     """Reject unusable arguments before spawning the downloader."""
     if any(ord(c) < 32 or 127 <= ord(c) <= 159 for value in (cookies_browser, cookies_file, proxy_url) for c in value):
@@ -242,10 +249,11 @@ YTD_HELP_TEXT = """\
   • [bold #e5e7eb]Subs[/]       Downloads manual and auto captions for English & Chinese (en, zh-Hans, zh-Hant, zh) and embeds them when FFmpeg is present.
 
 [bold #00d2ff]Cookies & Proxy[/]
-  • [bold #e5e7eb]Cookie[/]   None, Chrome, Edge, Firefox (--cookies-from-browser), or File (Netscape cookies.txt).
-  • [bold #e5e7eb]File[/]     Auto-detects cookies.txt in save/working dir, ~/.pykuai/cookies.txt, or ~/Downloads; you can also paste any cookies.txt path.
-  • [dim #9ca3af]Windows Auto-Fallback: When Chrome or Edge locks/blocks its cookie DB (yt-dlp #7271 / DPAPI #10927), ytd automatically falls back to detected cookies.txt or cookieless mode instead of aborting public videos.[/]
-  • [bold #e5e7eb]Proxy[/]    Optional http://, https://, socks4://, or socks5:// proxy URL.
+  • [bold #e5e7eb]Cookie[/]        None, Chrome, Edge, Firefox (--cookies-from-browser), or Netscape cookies.txt.
+  • [bold #38BDF8]Login YouTube[/] Opens a clean isolated Edge/Chrome sign-in window (~/.pykuai/yt-session) and saves cookies.txt automatically — no browser extension needed.
+  • [bold #e5e7eb]cookies.txt[/]   Auto-detects cookies.txt in save/working dir, ~/.pykuai/cookies.txt, or ~/Downloads; you can also paste any path.
+  • [dim #9ca3af]Windows Auto-Fallback: When Chrome or Edge locks/blocks its cookie DB (yt-dlp #7271 / DPAPI #10927), ytd falls back to detected cookies.txt or cookieless mode and can offer browser sign-in if YouTube requests verification.[/]
+  • [bold #e5e7eb]Proxy[/]         Optional http://, https://, socks4://, or socks5:// proxy URL.
 
 [bold #00d2ff]Output Directory, Naming & Stream Probing[/]
   • [bold #e5e7eb]Dir[/]      Target save folder (defaults to current working directory; outer quotes on pasted paths are stripped).
@@ -263,7 +271,16 @@ YTD_HELP_TEXT = """\
   • Keys: [bold]?[/] or [bold]F1[/] opens this guide · [bold]Esc[/] closes modals/Studio · [bold]Ctrl+C[/] aborts active download."""
 
 
-def _build_ytd_studio_app(initial_url: str = ""):
+def _build_ytd_studio_app(
+    initial_url: str = "",
+    *,
+    initial_fmt: str = "best",
+    initial_playlist: bool = False,
+    initial_subs: bool = False,
+    initial_out_dir: str = "",
+    initial_proxy: str = "",
+    initial_error: str = "",
+):
     """Construct the clickable Cyber-Dark YouTube Download (ytd) Studio (lazy-loaded)."""
     from textual.app import ComposeResult
     from textual.containers import Container, Horizontal, VerticalScroll
@@ -283,7 +300,10 @@ def _build_ytd_studio_app(initial_url: str = ""):
     js_lbl = "/".join(rt for rt, _ in runtimes) if runtimes else "no js"
 
     init_clean = _clean_text(initial_url)
-    detected_cookie = _discover_cookies_file()
+    init_fmt_norm = initial_fmt if initial_fmt in FORMAT_PROFILES else "best"
+    init_out = _clean_text(initial_out_dir) or os.getcwd()
+    init_proxy_clean = _clean_text(initial_proxy)
+    detected_cookie = _discover_cookies_file(init_out)
     media_css = CYBER_TUI_CSS + """
     #studio-card {
         height: 24;
@@ -317,11 +337,14 @@ def _build_ytd_studio_app(initial_url: str = ""):
         height: auto;
     }
     Screen.narrow .option-row .field-label,
-    Screen.narrow #ck-file {
+    Screen.narrow #ck-file,
+    Screen.narrow #btn-login {
         column-span: 2;
     }
-    Screen.narrow #ck-file {
+    Screen.narrow #ck-file,
+    Screen.narrow #btn-login {
         width: 100%;
+        margin-right: 0;
     }
     Screen.narrow .option-row ToggleChip {
         width: 1fr;
@@ -377,20 +400,20 @@ def _build_ytd_studio_app(initial_url: str = ""):
 
                     with Horizontal(classes="compact-tight option-row"):
                         yield Static("Video: ", classes="field-label")
-                        yield ToggleChip("Best", value="best", active=True, id="fmt-best")
-                        yield ToggleChip("1080p", value="1080p", active=False, id="fmt-1080p")
-                        yield ToggleChip("720p", value="720p", active=False, id="fmt-720p")
+                        yield ToggleChip("Best", value="best", active=(init_fmt_norm == "best"), id="fmt-best")
+                        yield ToggleChip("1080p", value="1080p", active=(init_fmt_norm == "1080p"), id="fmt-1080p")
+                        yield ToggleChip("720p", value="720p", active=(init_fmt_norm == "720p"), id="fmt-720p")
 
                     with Horizontal(classes="compact-row option-row"):
                         yield Static("Audio: ", classes="field-label")
-                        yield ToggleChip("MP3", value="mp3", active=False, id="fmt-mp3")
-                        yield ToggleChip("M4A", value="m4a", active=False, id="fmt-m4a")
+                        yield ToggleChip("MP3", value="mp3", active=(init_fmt_norm == "mp3"), id="fmt-mp3")
+                        yield ToggleChip("M4A", value="m4a", active=(init_fmt_norm == "m4a"), id="fmt-m4a")
 
                     with Horizontal(classes="compact-row option-row"):
                         yield Static("Scope:", classes="field-label")
-                        yield ToggleChip("Single", value="single", active=True, id="scope-single")
-                        yield ToggleChip("Playlist", value="playlist", active=False, id="scope-playlist")
-                        yield ToggleChip("Subs", value="subs", active=False, id="opt-subs")
+                        yield ToggleChip("Single", value="single", active=(not initial_playlist), id="scope-single")
+                        yield ToggleChip("Playlist", value="playlist", active=bool(initial_playlist), id="scope-playlist")
+                        yield ToggleChip("Subs", value="subs", active=bool(initial_subs), id="opt-subs")
 
                     with Horizontal(classes="compact-tight option-row"):
                         yield Static("Cookie:", classes="field-label")
@@ -402,6 +425,7 @@ def _build_ytd_studio_app(initial_url: str = ""):
                     with Horizontal(classes="compact-row option-row"):
                         yield Static("      ", classes="field-label")
                         yield ToggleChip("cookies.txt", value="file", active=bool(detected_cookie), id="ck-file")
+                        yield ActionChip("Login YouTube", variant_class="-file", id="btn-login")
 
                     with Horizontal(
                         id="cookies-row",
@@ -416,7 +440,7 @@ def _build_ytd_studio_app(initial_url: str = ""):
                         )
 
                     yield Static(
-                        "⚠ Windows Chrome/Edge locks cookie DB while running; auto-falls back to cookies.txt or None.",
+                        "⚠ Windows Chrome/Edge locks cookie DB while running; use Login YouTube or Firefox instead.",
                         id="cookie-note",
                         classes="cookie-warn hidden-section",
                         markup=False,
@@ -425,7 +449,7 @@ def _build_ytd_studio_app(initial_url: str = ""):
                     with Horizontal(classes="compact-tight"):
                         yield Static("Dir:  ", classes="field-label")
                         yield Input(
-                            value=os.getcwd(),
+                            value=init_out,
                             placeholder=".",
                             id="out-input",
                             classes="cyber-slim",
@@ -434,6 +458,7 @@ def _build_ytd_studio_app(initial_url: str = ""):
                     with Horizontal(classes="slim-row"):
                         yield Static("Proxy:", classes="field-label")
                         yield Input(
+                            value=init_proxy_clean,
                             placeholder="http://127.0.0.1:7897 (optional)",
                             id="proxy-input",
                             classes="cyber-slim",
@@ -455,6 +480,8 @@ def _build_ytd_studio_app(initial_url: str = ""):
 
         def on_mount(self) -> None:
             self.screen.set_class(self.size.width < 76, "narrow")
+            if initial_error:
+                self._set_error(initial_error)
             if init_clean:
                 self.query_one("#btn-run", ActionChip).focus()
             else:
@@ -529,6 +556,8 @@ def _build_ytd_studio_app(initial_url: str = ""):
                     self.query_one("#cookies-input", Input).focus()
             elif isinstance(btn, ToggleChip):
                 btn.active = not btn.active
+            elif bid == "btn-login":
+                self._submit("login", require_url=False)
             elif bid == "btn-run":
                 self._submit("download")
             elif bid == "btn-probe":
@@ -536,36 +565,48 @@ def _build_ytd_studio_app(initial_url: str = ""):
             elif bid == "btn-cancel":
                 self.exit(None)
 
-        def _submit(self, action: str) -> None:
+        def _submit(self, action: str, *, require_url: bool = True) -> None:
             url_val = _clean_text(self.query_one("#url-input", Input).value)
             ok, msg = _validate_url(url_val)
-            if not url_val:
-                self._set_error("Please enter or paste a video/playlist URL.")
-                self.query_one("#url-input", Input).focus()
-                return
-            if not ok:
-                self._set_error(msg)
-                self.query_one("#url-input", Input).focus()
-                return
+            if require_url:
+                if not url_val:
+                    self._set_error("Please enter or paste a video/playlist URL.")
+                    self.query_one("#url-input", Input).focus()
+                    return
+                if not ok:
+                    self._set_error(msg)
+                    self.query_one("#url-input", Input).focus()
+                    return
 
             fmt_key = self._active_group_value("fmt-", "best")
             is_playlist = self._active_group_value("scope-", "single") == "playlist"
             subtitles = self.query_one("#opt-subs", ToggleChip).active
+            raw_out = _clean_text(self.query_one("#out-input", Input).value) or "."
+            out_dir = os.path.abspath(os.path.expanduser(raw_out))
+            proxy_url = _clean_text(self.query_one("#proxy-input", Input).value)
+
+            if not require_url:
+                opt_err = _validate_connection_options("none", "", proxy_url)
+                if opt_err:
+                    self._set_error(opt_err)
+                    self.query_one("#proxy-input", Input).focus()
+                    return
+                self.exit(
+                    (action, url_val, fmt_key, is_playlist, subtitles, "none", "", out_dir, proxy_url)
+                )
+                return
+
             ck_choice = self._active_group_value("ck-", "none")
             if ck_choice == "file":
                 cookies_browser = "none"
                 cookies_file = os.path.expanduser(_clean_text(self.query_one("#cookies-input", Input).value))
                 if not cookies_file:
-                    self._set_error("Enter a cookies.txt file path (or select None / Firefox).")
+                    self._set_error("Enter a cookies.txt file path (or click Login YouTube / None / Firefox).")
                     self.query_one("#cookies-input", Input).focus()
                     return
             else:
                 cookies_browser = ck_choice
                 cookies_file = ""
-
-            raw_out = _clean_text(self.query_one("#out-input", Input).value) or "."
-            out_dir = os.path.abspath(os.path.expanduser(raw_out))
-            proxy_url = _clean_text(self.query_one("#proxy-input", Input).value)
 
             opt_err = _validate_connection_options(cookies_browser, cookies_file, proxy_url)
             if opt_err:
@@ -583,9 +624,24 @@ def _build_ytd_studio_app(initial_url: str = ""):
 
 def _launch_ytd_studio(
     initial_url: str = "",
+    *,
+    initial_fmt: str = "best",
+    initial_playlist: bool = False,
+    initial_subs: bool = False,
+    initial_out_dir: str = "",
+    initial_proxy: str = "",
+    initial_error: str = "",
 ) -> Optional[tuple[str, str, str, bool, bool, str, str, str, str]]:
     """Launch clickable ytd Studio inside interactive TTY."""
-    app = _build_ytd_studio_app(initial_url=initial_url)
+    app = _build_ytd_studio_app(
+        initial_url=initial_url,
+        initial_fmt=initial_fmt,
+        initial_playlist=initial_playlist,
+        initial_subs=initial_subs,
+        initial_out_dir=initial_out_dir,
+        initial_proxy=initial_proxy,
+        initial_error=initial_error,
+    )
     result = app.run(mouse=True)
     sys.stdout.flush()
     return result
@@ -693,12 +749,16 @@ class YtdEngine(BaseEngine):
         parser.add_argument("--cookies", default="", help="Path to exported Netscape cookies.txt")
         parser.add_argument("--proxy", default="", help="Override HTTP/SOCKS proxy URL")
         parser.add_argument("-F", "--list-formats", action="store_true", help="Inspect available streams without downloading")
+        parser.add_argument("--login", action="store_true", help="Sign in to YouTube via isolated browser and save ~/.pykuai/cookies.txt")
         parser.add_argument("--install-ffmpeg", action="store_true", help="Download official FFmpeg/FFprobe binaries into ~/.pykuai/tools/")
         parser.add_argument("-o", "--output-dir", default=".", help="Output directory (default: current directory)")
 
     def run_direct(self, args: argparse.Namespace, console: Console) -> int:
         if getattr(args, "install_ffmpeg", False):
             return 0 if ensure_ffmpeg(console=console, interactive=False, auto_confirm=True) else 1
+        if getattr(args, "login", False):
+            saved = login_youtube_and_save_cookies(proxy_url=getattr(args, "proxy", ""), console=console)
+            return 0 if saved else 1
 
         url = _clean_text(getattr(args, "url", "") or "")
         if not url:
