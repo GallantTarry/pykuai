@@ -267,7 +267,7 @@ YTD_HELP_TEXT = """\
 [bold #00d2ff]CLI Usage & Shortcuts[/]
   • [bold #e5e7eb]pykuai tt ytd[/]                                 Open interactive Studio
   • [bold #e5e7eb]pykuai tt ytd <url> \\[-f best|1080p|720p|mp3|m4a] \\[-o dir][/]
-  • Flags: [dim #9ca3af]-p/--playlist, --subs, --cookies-from-browser, --cookies <txt>, --proxy <url>, -F/--list-formats[/]
+  • Flags: [dim #9ca3af]-p/--playlist, --subs, --cookies-from-browser, --cookies <txt>, --login, --proxy <url>, -F/--list-formats, --install-ffmpeg[/]
   • Keys: [bold]?[/] or [bold]F1[/] opens this guide · [bold]Esc[/] closes modals/Studio · [bold]Ctrl+C[/] aborts active download."""
 
 
@@ -277,6 +277,7 @@ def _build_ytd_studio_app(
     initial_fmt: str = "best",
     initial_playlist: bool = False,
     initial_subs: bool = False,
+    initial_cookies_file: str = "",
     initial_out_dir: str = "",
     initial_proxy: str = "",
     initial_error: str = "",
@@ -303,7 +304,7 @@ def _build_ytd_studio_app(
     init_fmt_norm = initial_fmt if initial_fmt in FORMAT_PROFILES else "best"
     init_out = _clean_text(initial_out_dir) or os.getcwd()
     init_proxy_clean = _clean_text(initial_proxy)
-    detected_cookie = _discover_cookies_file(init_out)
+    detected_cookie = _clean_text(initial_cookies_file) or _discover_cookies_file(init_out)
     media_css = CYBER_TUI_CSS + """
     #studio-card {
         height: 24;
@@ -628,6 +629,7 @@ def _launch_ytd_studio(
     initial_fmt: str = "best",
     initial_playlist: bool = False,
     initial_subs: bool = False,
+    initial_cookies_file: str = "",
     initial_out_dir: str = "",
     initial_proxy: str = "",
     initial_error: str = "",
@@ -638,6 +640,7 @@ def _launch_ytd_studio(
         initial_fmt=initial_fmt,
         initial_playlist=initial_playlist,
         initial_subs=initial_subs,
+        initial_cookies_file=initial_cookies_file,
         initial_out_dir=initial_out_dir,
         initial_proxy=initial_proxy,
         initial_error=initial_error,
@@ -810,41 +813,73 @@ class YtdEngine(BaseEngine):
         from pykuai.core.tui import is_interactive_tty
 
         if is_interactive_tty():
-            selection = _launch_ytd_studio(initial_url=initial_url)
-            if not selection:
-                console.print("[dim]› Cancelled.[/dim]")
-                return 0
-            (
-                action,
-                url,
-                fmt_key,
-                is_playlist,
-                subtitles,
-                cookies_browser,
-                cookies_file,
-                save_dir,
-                proxy_url,
-            ) = selection
-            if action == "probe":
-                return self._list_formats(
+            draft_url = initial_url
+            draft_fmt = "best"
+            draft_playlist = False
+            draft_subs = False
+            draft_cookies = ""
+            draft_out = ""
+            draft_proxy = ""
+            draft_error = ""
+            while True:
+                selection = _launch_ytd_studio(
+                    initial_url=draft_url,
+                    initial_fmt=draft_fmt,
+                    initial_playlist=draft_playlist,
+                    initial_subs=draft_subs,
+                    initial_cookies_file=draft_cookies,
+                    initial_out_dir=draft_out,
+                    initial_proxy=draft_proxy,
+                    initial_error=draft_error,
+                )
+                if not selection:
+                    console.print("[dim]› Cancelled.[/dim]")
+                    return 0
+                (
+                    action,
+                    url,
+                    fmt_key,
+                    is_playlist,
+                    subtitles,
+                    cookies_browser,
+                    cookies_file,
+                    save_dir,
+                    proxy_url,
+                ) = selection
+                if action == "login":
+                    saved = login_youtube_and_save_cookies(proxy_url=proxy_url, console=console)
+                    draft_url = url
+                    draft_fmt = fmt_key
+                    draft_playlist = is_playlist
+                    draft_subs = subtitles
+                    draft_out = save_dir
+                    draft_proxy = proxy_url
+                    if saved:
+                        draft_cookies = str(saved)
+                        draft_error = ""
+                    else:
+                        draft_error = "YouTube login did not complete (cookies.txt not saved)."
+                    continue
+                if action == "probe":
+                    return self._list_formats(
+                        url=url,
+                        is_playlist=is_playlist,
+                        cookies_browser=cookies_browser,
+                        cookies_file=cookies_file,
+                        proxy_url=proxy_url,
+                        console=console,
+                    )
+                return self._download(
                     url=url,
+                    fmt_key=fmt_key,
                     is_playlist=is_playlist,
+                    subtitles=subtitles,
                     cookies_browser=cookies_browser,
                     cookies_file=cookies_file,
+                    save_dir=save_dir,
                     proxy_url=proxy_url,
                     console=console,
                 )
-            return self._download(
-                url=url,
-                fmt_key=fmt_key,
-                is_playlist=is_playlist,
-                subtitles=subtitles,
-                cookies_browser=cookies_browser,
-                cookies_file=cookies_file,
-                save_dir=save_dir,
-                proxy_url=proxy_url,
-                console=console,
-            )
 
         if not sys.stdin.isatty():
             print_error("No interactive input available. Use: pykuai tt ytd <url> [options]")
@@ -1007,9 +1042,9 @@ class YtdEngine(BaseEngine):
                     "[bold #FF9800]Browser Cookie Locked / Blocked on Windows[/bold #FF9800]\n"
                     "Chrome & Edge lock their cookie DB while running (yt-dlp #7271) "
                     "and Chromium 127+ blocks DPAPI decryption (#10927).\n"
-                    "  [dim]1.[/dim] Export [bold]cookies.txt[/bold] (e.g. 'Get cookies.txt LOCALLY') -> choose [bold #00FF00]Cookie: File[/bold #00FF00] or save to [bold]~/.pykuai/cookies.txt[/bold]\n"
+                    "  [dim]1.[/dim] Click [bold #38BDF8]Login YouTube[/bold #38BDF8] in Studio (or run [bold]pykuai tt ytd --login[/bold]) to save [bold]~/.pykuai/cookies.txt[/bold]\n"
                     "  [dim]2.[/dim] Or use [bold #00FF00]Firefox[/bold #00FF00] under Cookie (works while open)\n"
-                    "  [dim]3.[/dim] Or select Cookie: [bold]None[/bold] + switch proxy node",
+                    "  [dim]3.[/dim] Or choose [bold #00FF00]cookies.txt[/bold #00FF00] / select Cookie: [bold]None[/bold] + switch proxy node",
                     border_style="#FF9800",
                     box=box.ROUNDED,
                     expand=False,
@@ -1017,7 +1052,7 @@ class YtdEngine(BaseEngine):
             )
             return True
 
-        if "sign in to confirm" in joined or "login_required" in joined or "age-restricted" in joined:
+        if _is_bot_check_error(errors):
             console.print()
             extra = (
                 "Browser cookies were locked/blocked on Windows and cookieless retry hit YouTube's sign-in gate.\n"
@@ -1028,8 +1063,8 @@ class YtdEngine(BaseEngine):
                 Panel(
                     "[bold #FF9800]YouTube Sign-In / Bot Check[/bold #FF9800]\n"
                     f"{extra}"
-                    "  [dim]1.[/dim] Choose [bold #00FF00]Cookie: File[/bold #00FF00] in Studio (or save exported cookies to [bold]~/.pykuai/cookies.txt[/bold])\n"
-                    "  [dim]2.[/dim] Or select [bold #00FF00]Firefox[/bold #00FF00] under Cookie (works while open)\n"
+                    "  [dim]1.[/dim] Click [bold #38BDF8]Login YouTube[/bold #38BDF8] in Studio (or run [bold]pykuai tt ytd --login[/bold]) to sign in cleanly\n"
+                    "  [dim]2.[/dim] Or select [bold #00FF00]cookies.txt[/bold #00FF00] / [bold #00FF00]Firefox[/bold #00FF00] under Cookie\n"
                     "  [dim]3.[/dim] Or switch to a cleaner proxy node ([bold]Proxy[/bold] / [bold]--proxy[/bold])",
                     border_style="#FF9800",
                     box=box.ROUNDED,
@@ -1140,7 +1175,7 @@ class YtdEngine(BaseEngine):
 
         if not list_formats and rc != 0:
             joined_err = "\n".join(errors).lower()
-            is_auth_gate = "sign in to confirm" in joined_err or "login_required" in joined_err
+            is_auth_gate = _is_bot_check_error(errors)
             transient_fail = any(
                 tok in joined_err
                 for tok in ("http error 403", "requested format is not available", "signature solving failed")
@@ -1277,6 +1312,8 @@ class YtdEngine(BaseEngine):
         print_info(f"Profile: [bold #00FF00]{profile.label}[/bold #00FF00]")
 
         try:
+            from pykuai.core.tui import is_interactive_tty
+
             os.makedirs(save_dir, exist_ok=True)
             rc, errors, final_file, had_cookie_fallback = self._run_with_cookie_recovery(
                 runner_cmd,
@@ -1294,6 +1331,35 @@ class YtdEngine(BaseEngine):
             )
             if rc == 130:
                 return rc
+
+            if rc != 0 and _is_bot_check_error(errors) and is_interactive_tty():
+                print_warning("YouTube requires sign-in on this connection.")
+                try:
+                    ans = input("Open isolated browser to sign in to YouTube and retry? [Y/n]: ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    ans = "n"
+                if not ans or ans in {"y", "yes"}:
+                    saved_cookies = login_youtube_and_save_cookies(proxy_url=proxy_url, console=console)
+                    if saved_cookies:
+                        print_step("Retrying download with saved cookies.txt...")
+                        rc, retry_errors, retry_file, _ = self._run_with_cookie_recovery(
+                            runner_cmd,
+                            url,
+                            profile,
+                            save_dir,
+                            ffmpeg_bin,
+                            js_runtimes,
+                            console,
+                            is_playlist=is_playlist,
+                            subtitles=subtitles,
+                            cookies_browser="none",
+                            cookies_file=str(saved_cookies),
+                            proxy_url=proxy_url,
+                        )
+                        errors = retry_errors or errors
+                        final_file = retry_file or final_file
+                        if rc == 130:
+                            return rc
 
             if rc == 0:
                 size_line = ""

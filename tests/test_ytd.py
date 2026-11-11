@@ -617,5 +617,280 @@ class TestFfmpegInstaller(unittest.TestCase):
         self.assertTrue({"yt-dlp.exe", "UnRAR.exe", "zpix.ttf"}.issubset(names))
 
 
+class TestYouTubeAuthHelper(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        import asyncio
+
+        asyncio.get_running_loop().set_debug(False)
+
+    def test_cookies_to_netscape_filters_domains_and_parses_with_cookiejar(self):
+        import http.cookiejar
+        import tempfile
+        from pathlib import Path
+        from pykuai.core import yt_auth
+        from pykuai.engines import ytd
+
+        raw = [
+            {
+                "domain": ".youtube.com",
+                "path": "/",
+                "secure": True,
+                "session": False,
+                "expires": 1893456000.7,
+                "name": "SAPISID",
+                "value": "sapi-val",
+            },
+            {
+                "domain": ".google.com",
+                "path": "/",
+                "secure": True,
+                "session": True,
+                "expires": -1,
+                "name": "SID",
+                "value": "sid\tval\n",
+            },
+            {
+                "domain": ".example.com",
+                "path": "/",
+                "secure": False,
+                "session": False,
+                "expires": 1893456000,
+                "name": "TRACKER",
+                "value": "drop-me",
+            },
+        ]
+
+        self.assertFalse(yt_auth.has_youtube_auth_cookies([{"domain": ".youtube.com", "name": "PREF", "value": "1"}]))
+        self.assertTrue(yt_auth.has_youtube_auth_cookies(raw))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = yt_auth.write_cookies_file(raw, Path(tmp) / "cookies.txt")
+            self.assertTrue(ytd._looks_like_netscape_cookies(str(out)))
+            jar = http.cookiejar.MozillaCookieJar(str(out))
+            jar.load(ignore_discard=True, ignore_expires=True)
+            names = {c.name: c.value for c in jar}
+            self.assertEqual(names["SAPISID"], "sapi-val")
+            self.assertEqual(names["SID"], "sid val")
+            self.assertNotIn("TRACKER", names)
+
+    def test_login_youtube_and_save_cookies_flow(self):
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from pykuai.core import yt_auth
+
+        class _FakeProc:
+            def __init__(self):
+                self._rc = None
+
+            def poll(self):
+                return self._rc
+
+            def wait(self, timeout=None):
+                self._rc = 0
+                return 0
+
+            def terminate(self):
+                self._rc = 0
+
+            def kill(self):
+                self._rc = -9
+
+        class _FakeCdp:
+            def __init__(self, ws_url, timeout=5.0):
+                self.polls = 0
+                self.closed_browser = False
+
+            def call(self, method, params=None):
+                if method == "Storage.getCookies":
+                    self.polls += 1
+                    if self.polls < 3:
+                        return {"cookies": [{"domain": ".youtube.com", "name": "PREF", "value": "1"}]}
+                    return {
+                        "cookies": [
+                            {"domain": ".youtube.com", "name": "SAPISID", "value": "auth-token", "path": "/", "secure": True, "expires": 1893456000},
+                            {"domain": ".youtube.com", "name": "SID", "value": "sid-token", "path": "/", "secure": True, "expires": 1893456000},
+                        ]
+                    }
+                if method == "Target.getTargets":
+                    url = "https://accounts.google.com/ServiceLogin" if self.polls < 3 else "https://www.youtube.com/"
+                    return {"targetInfos": [{"type": "page", "url": url}]}
+                if method == "Browser.close":
+                    self.closed_browser = True
+                    return {}
+                return {}
+
+            def close(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "cookies.txt"
+            prof = Path(tmp) / "yt-session"
+            proc = _FakeProc()
+            with (
+                mock.patch.object(yt_auth, "find_chromium_browser", return_value=("Edge", "C:\\msedge.exe")),
+                mock.patch.object(yt_auth.subprocess, "Popen", return_value=proc),
+                mock.patch.object(yt_auth, "_fetch_cdp_version_ws", return_value="ws://127.0.0.1:9222/devtools/browser/1"),
+                mock.patch.object(yt_auth, "_CdpClient", _FakeCdp),
+                mock.patch.object(yt_auth.time, "sleep"),
+            ):
+                saved = yt_auth.login_youtube_and_save_cookies(
+                    cookies_path=dest,
+                    profile_dir=prof,
+                    timeout_seconds=10,
+                    poll_interval=0.0,
+                )
+            self.assertEqual(saved, dest)
+            self.assertTrue(dest.is_file())
+            self.assertIn("auth-token", dest.read_text(encoding="utf-8"))
+
+            # Closing early without signing in must NOT clobber existing cookies.txt.
+            class _AbortedProc(_FakeProc):
+                def poll(self):
+                    return 0
+
+            with (
+                mock.patch.object(yt_auth, "find_chromium_browser", return_value=("Edge", "C:\\msedge.exe")),
+                mock.patch.object(yt_auth.subprocess, "Popen", return_value=_AbortedProc()),
+                mock.patch.object(yt_auth, "_fetch_cdp_version_ws", return_value="ws://127.0.0.1:9222/devtools/browser/1"),
+                mock.patch.object(
+                    yt_auth,
+                    "_CdpClient",
+                    lambda *a, **k: type("_AnonCdp", (), {"call": lambda *a, **k: {"cookies": []}, "close": lambda self: None})(),
+                ),
+            ):
+                aborted = yt_auth.login_youtube_and_save_cookies(cookies_path=dest, profile_dir=prof)
+            self.assertIsNone(aborted)
+            self.assertIn("auth-token", dest.read_text(encoding="utf-8"))
+
+    async def test_studio_login_button_fits_narrow_and_submits_without_url(self):
+        from unittest import mock
+        from rich.cells import cell_len
+        from pykuai.engines import ytd
+
+        for size in ((100, 30), (40, 16)):
+            with (
+                mock.patch("pykuai.core.tui.warmup_sfx"),
+                mock.patch("pykuai.core.tui.play_sfx"),
+                mock.patch("pykuai.engines.ytd.resolve_ytdlp_runner", return_value=None),
+                mock.patch("pykuai.engines.ytd.get_ffmpeg", return_value=None),
+                mock.patch("pykuai.engines.ytd.get_js_runtimes", return_value=[]),
+                mock.patch("pykuai.engines.ytd._discover_cookies_file", return_value=""),
+            ):
+                app = ytd._build_ytd_studio_app("")
+                async with app.run_test(size=size) as pilot:
+                    login_btn = app.query_one("#btn-login")
+                    login_btn.scroll_visible(animate=False)
+                    await pilot.pause()
+                    self.assertLessEqual(cell_len(str(login_btn.label)), login_btn.content_size.width)
+                    self.assertTrue(await pilot.click("#btn-login"))
+                self.assertIsNotNone(app.return_value)
+                self.assertEqual(app.return_value[0], "login")
+
+    def test_ytd_download_bot_check_login_recovery_and_cli_login(self):
+        import argparse
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from rich.console import Console
+        from pykuai.engines import ytd
+
+        engine = ytd.YtdEngine()
+        console = Console(quiet=True)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_cookies = Path(tmp) / "cookies.txt"
+            fake_cookies.write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
+            responses = [
+                (1, ["ERROR: [youtube] xyz: Sign in to confirm you're not a bot."], None, False),
+                (0, [], "downloaded.mp4", False),
+            ]
+            with (
+                mock.patch.object(ytd, "resolve_ytdlp_runner", return_value=(["yt-dlp"], "2026.10.26")),
+                mock.patch.object(ytd, "get_ffmpeg", return_value="ffmpeg.exe"),
+                mock.patch.object(ytd, "get_js_runtimes", return_value=[("node", "node")]),
+                mock.patch("pykuai.core.tui.is_interactive_tty", return_value=True),
+                mock.patch("builtins.input", return_value="y"),
+                mock.patch.object(ytd, "login_youtube_and_save_cookies", return_value=fake_cookies) as mock_login,
+                mock.patch.object(engine, "_run_with_cookie_recovery", side_effect=responses) as mock_run,
+            ):
+                rc = engine._download(
+                    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    "best",
+                    False,
+                    False,
+                    "none",
+                    "",
+                    tmp,
+                    "",
+                    console,
+                )
+            self.assertEqual(rc, 0)
+            mock_login.assert_called_once()
+            self.assertEqual(mock_run.call_count, 2)
+            self.assertEqual(mock_run.call_args_list[1].kwargs["cookies_file"], str(fake_cookies))
+
+        args = argparse.Namespace(install_ffmpeg=False, login=True, proxy="http://127.0.0.1:7897", url="")
+        with mock.patch.object(ytd, "login_youtube_and_save_cookies", return_value=Path("cookies.txt")) as mock_cli_login:
+            self.assertEqual(engine.run_direct(args, console), 0)
+            mock_cli_login.assert_called_once_with(proxy_url="http://127.0.0.1:7897", console=console)
+
+    def test_cdp_client_handles_fragmented_frames_and_ping(self):
+        import json
+        import socket
+        import struct
+        import threading
+        from pykuai.core.yt_auth import _CdpClient
+
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+
+        def _server_worker():
+            conn, _ = server.accept()
+            with conn:
+                buf = b""
+                while b"\r\n\r\n" not in buf:
+                    buf += conn.recv(4096)
+                conn.sendall(
+                    b"HTTP/1.1 101 Switching Protocols\r\n"
+                    b"Upgrade: websocket\r\nConnection: Upgrade\r\n\r\n"
+                )
+                # Read masked client text frame
+                b1, b2 = conn.recv(2)
+                length = b2 & 0x7F
+                mask = conn.recv(4)
+                masked = conn.recv(length)
+                req = json.loads(bytes(b ^ mask[i % 4] for i, b in enumerate(masked)).decode())
+
+                def _send_srv_frame(opcode_fin: int, data: bytes):
+                    hdr = bytearray([opcode_fin])
+                    hdr.append(len(data))
+                    conn.sendall(bytes(hdr) + data)
+
+                # Send PING, async event to skip, and fragmented JSON response
+                _send_srv_frame(0x89, b"hi")
+                b_pong_hdr = conn.recv(2)
+                pong_mask = conn.recv(4)
+                pong_len = b_pong_hdr[1] & 0x7F
+                conn.recv(pong_len)
+                _send_srv_frame(0x81, json.dumps({"method": "Target.targetCreated"}).encode())
+                reply = json.dumps({"id": req["id"], "result": {"cookies": [{"name": "SID"}]}}).encode()
+                mid = len(reply) // 2
+                _send_srv_frame(0x01, reply[:mid])  # FIN=0 TEXT
+                _send_srv_frame(0x80, reply[mid:])  # FIN=1 CONTINUATION
+
+        th = threading.Thread(target=_server_worker, daemon=True)
+        th.start()
+        try:
+            with _CdpClient(f"ws://127.0.0.1:{port}/devtools/browser/test", timeout=3.0) as client:
+                res = client.call("Storage.getCookies")
+            self.assertEqual(res["cookies"][0]["name"], "SID")
+        finally:
+            th.join(timeout=3.0)
+            server.close()
+
+
 if __name__ == "__main__":
     unittest.main()

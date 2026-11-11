@@ -84,7 +84,7 @@ pykuai/
 * **[`base.py`](pykuai/core/base.py)** 与 **[`registry.py`](pykuai/core/registry.py)**：定义所有插件必须实现的 `BaseEngine` 接口，并在运行时扫描 `pykuai/engines/` 中符合三位小写字母命名规范（`^[a-z]{3}$`）的模块实现零配置注册。
 * **[`tray.py`](pykuai/core/tray.py)**：驱动 `tt` 指令，在终端内提供可鼠标/键盘选择的工具托盘界面（右下角内置全局复古音效开关 `🔊 SFX ON / 🔇 SFX OFF`），或将 `tt <tool> [args]` 直接分发至目标引擎执行。
 * **[`deps.py`](pykuai/core/deps.py)**：驱动 `pp` 指令，自动扫描已注册引擎的依赖需求与环境缺失项，提供可视化勾选安装与 `--check` / `-y` 自动化模式。
-* **[`tools.py`](pykuai/core/tools.py)**：统一优先定位 `pykuai/tools/` 下的便携工具链、系统 `PATH` 与 `~/.pykuai/tools/` 中的二进制可执行文件（如 `ffmpeg`、`ffprobe`、`yt-dlp`、`UnRAR` 及 JS 运行时），并在 Windows 缺失 `FFmpeg` 时支持 SHA256 校验后按需自动安装至 `~/.pykuai/tools/`。
+* **[`tools.py`](pykuai/core/tools.py)** 与 **[`yt_auth.py`](pykuai/core/yt_auth.py)**：统一优先定位 `pykuai/tools/` 下的便携工具链、系统 `PATH` 与 `~/.pykuai/tools/` 中的二进制可执行文件（如 `ffmpeg`、`ffprobe`、`yt-dlp`、`UnRAR` 及 JS 运行时），支持 Windows 缺失 `FFmpeg` 时 SHA256 校验后按需自动安装，并提供隔离浏览器「一键登录 YouTube（`Login YouTube` / `--login`）」自动保存 `~/.pykuai/cookies.txt`。
 * **[`watchdog.py`](pykuai/core/watchdog.py)**：后台守护 Windows Terminal `settings.json` 状态，防止控制台异常关闭时残留临时视觉配置。
 
 #### 4. `pykuai/engines/` 即插即用工具引擎层
