@@ -12,7 +12,7 @@ from rich.table import Table
 from rich.prompt import Prompt
 from rich import box
 from pykuai import __version__
-from pykuai.core.audio import play_sfx, stop_sfx
+from pykuai.core.audio import play_sfx, stop_sfx, warmup_sfx
 from pykuai.core.ui import (
     console,
     print_banner,
@@ -287,6 +287,7 @@ def _read_console_command(history: list[str]) -> str:
 def run_interactive_console(skip_intro: bool = False):
     """Minimal Cyber-Dark interactive REPL console."""
     try:
+        warmup_sfx()
         intro_played = False
         if not skip_intro:
             try:

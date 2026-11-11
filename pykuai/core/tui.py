@@ -16,7 +16,7 @@ from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.content import Content
 from textual.widgets import Button, Input, Static
 
-from pykuai.core.audio import is_sfx_enabled, play_sfx, toggle_sfx
+from pykuai.core.audio import is_sfx_enabled, play_sfx, toggle_sfx, warmup_sfx
 
 
 def is_interactive_tty() -> bool:
@@ -431,6 +431,7 @@ class PyKuaiStudioApp(App):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         _install_tui_sfx_hooks()
+        warmup_sfx()
         super().__init__(*args, **kwargs)
 
     @on(events.Paste)
