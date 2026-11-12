@@ -61,6 +61,7 @@ def show_help_table():
 
     table.add_row("tt", "Tool Tray")
     table.add_row("pp", "Pull Packages")
+    table.add_row("aa", "Arcade Arena")
     table.add_row("vv", "View Version")
     table.add_row("cc", "Clear Console")
     table.add_row("hh", "Help Hub")
@@ -325,7 +326,7 @@ def run_interactive_console(skip_intro: bool = False):
                 clear_screen()
                 apply_terminal_identity("pykuai")
                 print_banner()
-                console.print("[dim][bold #00FF00]hh[/bold #00FF00] help · [bold #00FF00]tt[/bold #00FF00] tools · [bold red]gg[/bold red] exit[/dim]\n")
+                console.print("[dim][bold #00FF00]hh[/bold #00FF00] help · [bold #00FF00]tt[/bold #00FF00] tools · [bold #00FF00]aa[/bold #00FF00] arcade · [bold red]gg[/bold red] exit[/dim]\n")
                 continue
 
             if cmd_lower == "hh":
@@ -352,6 +353,17 @@ def run_interactive_console(skip_intro: bool = False):
 
                 pp_args = shlex.split(cmd, posix=(os.name != "nt"))[1:]
                 run_pull_packages(console, cli_args=pp_args or None, interactive=True)
+                console.print()
+                continue
+
+            if cmd_lower == "aa" or cmd_lower.startswith("aa "):
+                from pykuai.arcade.launcher import run_arcade_arena
+
+                try:
+                    aa_args = [_strip_quotes(tok) for tok in shlex.split(cmd, posix=(os.name != "nt"))[1:]]
+                except Exception:
+                    aa_args = [_strip_quotes(tok) for tok in cmd.split()[1:]]
+                run_arcade_arena(console, cli_args=aa_args or None, interactive=True)
                 console.print()
                 continue
 
@@ -435,6 +447,21 @@ def run_direct_cli():
             apply_terminal_identity("pykuai")
             try:
                 exit_code = run_pull_packages(console, cli_args=sys.argv[2:] or None, interactive=True)
+                sys.exit(exit_code)
+            except KeyboardInterrupt:
+                console.print("\n[bold yellow]⚠️ Operation cancelled by user.[/bold yellow]")
+                sys.exit(130)
+
+        if first_arg == "aa":
+            from pykuai.arcade.launcher import run_arcade_arena
+
+            apply_terminal_identity("pykuai")
+            try:
+                exit_code = run_arcade_arena(
+                    console,
+                    cli_args=sys.argv[2:] or None,
+                    interactive=(len(sys.argv) <= 2),
+                )
                 sys.exit(exit_code)
             except KeyboardInterrupt:
                 console.print("\n[bold yellow]⚠️ Operation cancelled by user.[/bold yellow]")
