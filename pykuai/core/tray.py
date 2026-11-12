@@ -28,7 +28,6 @@ TT_HELP_TEXT = """\
   • Click any tool row (for example, [bold #10b981]ifc[/] or [bold #10b981]ytd[/]) to open its interactive Studio immediately.
 
 [bold #00d2ff]Global Tray Controls[/]
-  • [bold #e5e7eb]🔊 SFX ON / 🔇 SFX OFF[/]  Toggle retro terminal UI sound effects across Tool Tray and Studios.
   • [bold #e5e7eb]✕ Close[/] / [bold]Esc[/]        Dismiss the Tool Tray and return to the PyKuai prompt.
   • [bold #e5e7eb]?[/] / [bold]F1[/]               Open this Tool Tray feature guide.
 
@@ -49,7 +48,6 @@ def _build_tt_app(engines: dict[str, BaseEngine]):
         ActionChip,
         CYBER_TUI_CSS,
         PyKuaiStudioApp,
-        SfxToggleChip,
         StudioHeader,
     )
 
@@ -104,13 +102,9 @@ def _build_tt_app(engines: dict[str, BaseEngine]):
                         variant_class="-danger",
                         id="btn-cancel",
                     )
-                    yield Static("", classes="action-spacer")
-                    yield SfxToggleChip(id="btn-sfx")
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
             btn = event.button
-            if isinstance(btn, SfxToggleChip):
-                return
             val = getattr(btn, "value", None)
             if btn.id == "btn-cancel" or val == "__cancel__":
                 self.exit(None)

@@ -22,7 +22,7 @@ AA_HELP_TEXT = """\
 
 [bold #00d2ff]Plugging In More Games[/]
   • Drop any `.py` module into [bold]pykuai/arcade/[/] containing an [bold]ArcadeGame[/] subclass.
-  • Set a unique 3-letter lowercase [bold]code[/] (`^[a-z]{3}$`, e.g. `snk`, `hex`, `trs`), `title`, and `tagline`.
+  • Set a unique 3-letter lowercase [bold]code[/] (`^[a-z]{3}$`, e.g. `snk`, `trs`), `title`, and `tagline`.
   • PyKuai discovers it automatically and tracks high scores atomically in [bold]~/.pykuai/settings.json[/].
 
 [bold #00d2ff]Shortcuts[/]
@@ -42,7 +42,6 @@ def _build_aa_app(games: dict[str, ArcadeGame]):
         ActionChip,
         CYBER_TUI_CSS,
         PyKuaiStudioApp,
-        SfxToggleChip,
         StudioHeader,
     )
 
@@ -112,13 +111,9 @@ def _build_aa_app(games: dict[str, ArcadeGame]):
                         variant_class="-danger",
                         id="btn-cancel",
                     )
-                    yield Static("", classes="action-spacer")
-                    yield SfxToggleChip(id="btn-sfx")
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
             btn = event.button
-            if isinstance(btn, SfxToggleChip):
-                return
             val = getattr(btn, "value", None)
             if btn.id == "btn-cancel" or val == "__cancel__":
                 self.exit(None)

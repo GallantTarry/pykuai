@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-PyKuai: Hex 3D (`hex`)
-Compact Multicolored 3D Honeycomb Snake — Forced Right-Only Edition.
+Hex 3D (`hex`)
+Compact Multicolored 3D Honeycomb Snake — Broken-Left Edition.
 
 Backstory:
   When TuKuai was young, his older brother gave him a Nokia phone whose center square D-pad
@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections import deque
 import math
 import random
+import time
 from typing import Optional
 
 from rich.console import Console
@@ -24,10 +25,19 @@ from pykuai.core.ui import print_error
 CubeCoord = tuple[int, int, int]
 RGB = tuple[int, int, int]
 
-DEFAULT_PIX_W = 58
-DEFAULT_PIX_H = 26  # 13 half-block terminal rows inside compact 78x24 studio card
+DEFAULT_PIX_W = 140  # 70 terminal cols x 2 quadrant sub-pixels
+DEFAULT_PIX_H = 32   # 16 terminal rows x 2 quadrant sub-pixels inside exact 78x24 card
 VOID_RGB: RGB = (7, 9, 16)
+VOID_INT: int = (7 << 16) | (9 << 8) | 16
 VOID_HEX = "#070910"
+
+# 4-bit (TL=8, TR=4, BL=2, BR=1) lookup into BMP Block Elements / Quadrants
+QUAD_CHARS: tuple[str, ...] = (
+    " ", "▗", "▖", "▄",
+    "▝", "▐", "▞", "▟",
+    "▘", "▚", "▌", "▙",
+    "▀", "▜", "▛", "█",
+)
 
 # Clockwise cube directions matching (+wx, +wz) right-handed top-down orientation
 HEX_DIRS: tuple[CubeCoord, ...] = (
@@ -39,14 +49,14 @@ HEX_DIRS: tuple[CubeCoord, ...] = (
     (1, -1, 0),
 )
 
-# Multicolored 6-hue jewel mosaic palette (no green so the green spotted snake pops clearly!)
+# Multicolored 6-hue jewel mosaic palette (no green so the green spotted snake pops clearly)
 MOSAIC_TILES: tuple[tuple[RGB, RGB, RGB], ...] = (
-    ((16, 108, 138), (56, 224, 248), (10, 62, 84)),    # Electric Cyan
-    ((62, 54, 186), (138, 150, 255), (36, 30, 118)),   # Royal Indigo
-    ((124, 38, 198), (206, 146, 255), (72, 22, 120)),  # Amethyst Violet
-    ((182, 28, 96), (250, 124, 190), (108, 16, 58)),   # Neon Rose
-    ((176, 84, 16), (255, 198, 56), (104, 48, 10)),    # Amber Gold
-    ((28, 82, 206), (104, 174, 255), (16, 48, 126)),   # Cobalt Blue
+    ((18, 114, 146), (72, 232, 255), (12, 70, 96)),    # Electric Cyan
+    ((66, 58, 194), (146, 158, 255), (38, 34, 126)),   # Royal Indigo
+    ((132, 42, 206), (214, 154, 255), (76, 26, 128)),  # Amethyst Violet
+    ((188, 34, 102), (255, 134, 198), (112, 20, 64)),  # Neon Rose
+    ((184, 92, 20), (255, 204, 68), (108, 52, 14)),    # Amber Gold
+    ((32, 88, 214), (112, 182, 255), (18, 54, 136)),   # Cobalt Blue
 )
 
 STAGES: tuple[dict[str, object], ...] = (
@@ -56,35 +66,149 @@ STAGES: tuple[dict[str, object], ...] = (
 )
 
 HEX3D_HELP = """\
-[bold #22d3ee]PyKuai: Hex 3D (hex) · Broken-Left Legend[/]
+[bold #22d3ee]Hex 3D (hex) · Broken-Left Legend[/]
   [italic #a5f3fc]When TuKuai was young, his older brother gave him a Nokia phone.[/]
   [italic #a5f3fc]Its square center D-pad was broken on the LEFT — it could only click RIGHT.[/]
   [italic #a5f3fc]Spinning right on the spot, TuKuai conquered the entire 3D hex arena anyway.[/]
 
-[bold #22d3ee]How Right-Only Steering Works[/]
-  • [bold #00FF00]→ / D (Tap 1–4x)[/] Pivots your aim reticle clockwise [bold]instantly[/] on the current hex!
-    Tap 1x = +60 deg Right | Tap 2x = +120 deg | Tap 4x = Left (-60 deg)!
+[bold #22d3ee]Steering & Controls[/]
+  • [bold #00FF00]→ / D (Tap 1–4x)[/] Snap aim reticle clockwise (+60 deg) immediately.
+    Tap 1x = +60 deg Right | Tap 2x = +120 deg | Tap 4x = Left (-60 deg).
+    Rapid multi-taps hold a brief turn grace window so combos complete cleanly.
+  • [bold #e5e7eb]↑ / W[/]         Quick-step forward 1 tile immediately.
   • [bold #FF5252]← / A Locked[/]    Left D-pad is broken and triggers a hardware fault warning.
-  • Outer rim safely deflects clockwise (-5 pts); biting your tail ends the run.
-
-[bold #22d3ee]Controls[/]
-  • [bold #e5e7eb]→ / D[/]         Instant clockwise pivot (+60 deg)
   • [bold #e5e7eb]Space / P[/]     Start or Pause
   • [bold #e5e7eb]R[/]             Restart
   • [bold #e5e7eb]Esc / Q[/]       Save & Exit"""
 
 
 _HEX_STR_CACHE: dict[int, str] = {}
+_STAR_OFFSETS: tuple[tuple[int, int, RGB], ...] = (
+    (12, 2, (28, 38, 64)),
+    (38, 1, (38, 52, 84)),
+    (68, 3, (26, 36, 60)),
+    (102, 2, (42, 56, 88)),
+    (126, 4, (32, 42, 70)),
+    (24, 6, (28, 38, 62)),
+    (116, 7, (34, 46, 76)),
+)
 
 
-def _rgb_to_hex(rgb: RGB) -> str:
-    key = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
+def _pack_rgb(rgb: RGB) -> int:
+    return (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
+
+
+def _int_to_hex(key: int) -> str:
     cached = _HEX_STR_CACHE.get(key)
     if cached is None:
-        cached = f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
-        if len(_HEX_STR_CACHE) < 4096:
+        cached = f"#{key:06x}"
+        if len(_HEX_STR_CACHE) < 16384:
             _HEX_STR_CACHE[key] = cached
     return cached
+
+
+def _mix_int(c_a: int, c_b: int, t: float) -> int:
+    if t <= 0.0:
+        return c_a
+    if t >= 1.0:
+        return c_b
+    inv = 1.0 - t
+    r = int(((c_a >> 16) & 255) * inv + ((c_b >> 16) & 255) * t)
+    g = int(((c_a >> 8) & 255) * inv + ((c_b >> 8) & 255) * t)
+    b = int((c_a & 255) * inv + (c_b & 255) * t)
+    return (r << 16) | (g << 8) | b
+
+
+def _solve_quad_cell(c0: int, c1: int, c2: int, c3: int) -> tuple[str, int, int]:
+    """
+    Pack a 2x2 sub-pixel block (TL=c0, TR=c1, BL=c2, BR=c3) into (glyph, fg_int, bg_int).
+    Uses exact lookup for <=2 colors and farthest-pair 2-means clustering for 3-4 colors.
+    """
+    if c0 == c1 == c2 == c3:
+        if c0 == VOID_INT:
+            return " ", VOID_INT, VOID_INT
+        return "█", c0, VOID_INT
+
+    if c0 == c1 and c2 == c3:
+        if c0 == VOID_INT:
+            return "▄", c2, VOID_INT
+        return "▀", c0, c2
+
+    if c0 == c2 and c1 == c3:
+        if c0 == VOID_INT:
+            return "▐", c1, VOID_INT
+        return "▌", c0, c1
+
+    # Check if at most 2 distinct colors exist (exact zero-error quadrant mask)
+    b_col = -1
+    if c1 != c0:
+        b_col = c1
+    elif c2 != c0:
+        b_col = c2
+    elif c3 != c0:
+        b_col = c3
+
+    if (c1 == c0 or c1 == b_col) and (c2 == c0 or c2 == b_col) and (c3 == c0 or c3 == b_col):
+        if c0 == VOID_INT:
+            fg, bg = b_col, c0
+        else:
+            fg, bg = c0, b_col
+        mask = (8 if c0 == fg else 0) | (4 if c1 == fg else 0) | (2 if c2 == fg else 0) | (1 if c3 == fg else 0)
+        return QUAD_CHARS[mask], fg, bg
+
+    # 3-4 distinct colors (SSAA anti-aliased edge): 2-means split by farthest RGB pair
+    r0, g0, b0 = (c0 >> 16) & 255, (c0 >> 8) & 255, c0 & 255
+    r1, g1, b1 = (c1 >> 16) & 255, (c1 >> 8) & 255, c1 & 255
+    r2, g2, b2 = (c2 >> 16) & 255, (c2 >> 8) & 255, c2 & 255
+    r3, g3, b3 = (c3 >> 16) & 255, (c3 >> 8) & 255, c3 & 255
+
+    cols = ((r0, g0, b0), (r1, g1, b1), (r2, g2, b2), (r3, g3, b3))
+    best_d = -1
+    pa_r = pa_g = pa_b = 0
+    pb_r = pb_g = pb_b = 0
+    for i in range(3):
+        ri, gi, bi = cols[i]
+        for j in range(i + 1, 4):
+            rj, gj, bj = cols[j]
+            dr = ri - rj
+            dg = gi - gj
+            db = bi - bj
+            d = dr * dr + dg * dg + db * db
+            if d > best_d:
+                best_d = d
+                pa_r, pa_g, pa_b = ri, gi, bi
+                pb_r, pb_g, pb_b = rj, gj, bj
+
+    mask = 0
+    sa_r = sa_g = sa_b = na = 0
+    sb_r = sb_g = sb_b = nb = 0
+    bits = (8, 4, 2, 1)
+    for k in range(4):
+        rk, gk, bk = cols[k]
+        da = (rk - pa_r) ** 2 + (gk - pa_g) ** 2 + (bk - pa_b) ** 2
+        db_v = (rk - pb_r) ** 2 + (gk - pb_g) ** 2 + (bk - pb_b) ** 2
+        if da <= db_v:
+            mask |= bits[k]
+            sa_r += rk
+            sa_g += gk
+            sa_b += bk
+            na += 1
+        else:
+            sb_r += rk
+            sb_g += gk
+            sb_b += bk
+            nb += 1
+
+    if na == 0:
+        avg_b = ((sb_r // nb) << 16) | ((sb_g // nb) << 8) | (sb_b // nb)
+        return "█", avg_b, VOID_INT
+    if nb == 0:
+        avg_a = ((sa_r // na) << 16) | ((sa_g // na) << 8) | (sa_b // na)
+        return "█", avg_a, VOID_INT
+
+    fg_i = ((sa_r // na) << 16) | ((sa_g // na) << 8) | (sa_b // na)
+    bg_i = ((sb_r // nb) << 16) | ((sb_g // nb) << 8) | (sb_b // nb)
+    return QUAD_CHARS[mask], fg_i, bg_i
 
 
 def _mix_rgb(a: RGB, b: RGB, t: float) -> RGB:
@@ -114,7 +238,7 @@ def _cube_dist(a: CubeCoord, b: CubeCoord) -> int:
 
 def _cube_to_world_xz(c: CubeCoord, hex_size: float = 1.0) -> tuple[float, float]:
     q, r, _ = c
-    return hex_size * math.sqrt(3.0) * (q + r * 0.5), hex_size * 1.5 * r
+    return hex_size * 1.7320508075688772 * (q + r * 0.5), hex_size * 1.5 * r
 
 
 def _build_stage_heights(stage_idx: int, radius: int) -> dict[CubeCoord, float]:
@@ -143,7 +267,7 @@ def _build_stage_heights(stage_idx: int, radius: int) -> dict[CubeCoord, float]:
 
 
 class _Hex3DEngine:
-    """Deterministic cube-grid 3D snake with instant pivot, mosaic tiles & green spotted snake."""
+    """Deterministic cube-grid 3D snake with instant steering, fine relief & spotted serpent."""
 
     def __init__(self, rng: Optional[random.Random] = None) -> None:
         self.rng = rng or random.Random()
@@ -164,7 +288,7 @@ class _Hex3DEngine:
         self.status_line = (
             "Left D-Pad broken! Tap D / -> or Space to start."
             if show_intro
-            else "Tap D / -> to spin aim right (+60 deg) toward star!"
+            else "Tap D / -> to spin aim right (+60 deg) · W / ↑ to dash."
         )
         self._load_stage(0)
 
@@ -180,27 +304,48 @@ class _Hex3DEngine:
         self.valid_cells = set(self.heights.keys())
 
         corner_angles = [math.radians(60 * i + 30) for i in range(6)]
-        r_outer = 0.87
-        r_inner = 0.73
-        floor_y = -0.65
+        r_outer = 0.90
+        r_inner = 0.76
+        floor_y = -0.68
+
+        # Key directional light vector for 3D cliff shading
+        lx, lz = -0.62, -0.78
 
         # (cell, h, outer_verts, inner_verts, fill_rgb, rim_rgb)
-        self._mesh_tiles: list[tuple[CubeCoord, float, list[tuple[float, float, float]], list[tuple[float, float, float]], RGB, RGB]] = []
-        self._mesh_cliffs: list[tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float], tuple[float, float, float], float, float, RGB]] = []
+        self._mesh_tiles: list[
+            tuple[
+                CubeCoord,
+                float,
+                list[tuple[float, float, float]],
+                list[tuple[float, float, float]],
+                RGB,
+                RGB,
+            ]
+        ] = []
+        self._mesh_cliffs: list[
+            tuple[
+                tuple[float, float, float],
+                tuple[float, float, float],
+                tuple[float, float, float],
+                tuple[float, float, float],
+                float,
+                float,
+                RGB,
+            ]
+        ] = []
 
         cell_centers = {c: _cube_to_world_xz(c) for c in self.valid_cells}
         for cell, h in self.heights.items():
             wx, wz = cell_centers[cell]
             q, r, _ = cell
-            # Proper mosaic coloring: neighbors never share the same base jewel color
             color_idx = (q * 2 + r * 3 + palette_shift) % len(MOSAIC_TILES)
             fill_base, rim_base, cliff_base = MOSAIC_TILES[color_idx]
 
             outer_verts = [(wx + r_outer * math.cos(a), h, wz + r_outer * math.sin(a)) for a in corner_angles]
-            inner_verts = [(wx + r_inner * math.cos(a), h + 0.015, wz + r_inner * math.sin(a)) for a in corner_angles]
-            elev_mul = max(0.80, min(1.30, 0.86 + h * 0.30))
+            inner_verts = [(wx + r_inner * math.cos(a), h + 0.016, wz + r_inner * math.sin(a)) for a in corner_angles]
+            elev_mul = max(0.82, min(1.32, 0.88 + h * 0.30))
             tile_col = _scale_rgb(fill_base, elev_mul)
-            rim_col = _scale_rgb(rim_base, min(1.15, elev_mul))
+            rim_col = _scale_rgb(rim_base, min(1.16, elev_mul))
             self._mesh_tiles.append((cell, h, outer_verts, inner_verts, tile_col, rim_col))
 
             for i in range(6):
@@ -210,19 +355,21 @@ class _Hex3DEngine:
                 mz = (a_pt[2] + b_pt[2]) * 0.5 - wz
                 n_len = math.hypot(mx, mz) or 1.0
                 nx, nz = mx / n_len, mz / n_len
-                px_out = wx + nx * 1.73
-                pz_out = wz + nz * 1.73
+                px_out = wx + nx * 1.732
+                pz_out = wz + nz * 1.732
                 drop_y = floor_y
                 is_exterior = True
                 for nc, (nwx, nwz) in cell_centers.items():
                     if nc != cell and (nwx - px_out) ** 2 + (nwz - pz_out) ** 2 < 0.6:
                         is_exterior = False
-                        drop_y = self.heights[nc] if h > self.heights[nc] + 0.14 else h
+                        drop_y = self.heights[nc] if h > self.heights[nc] + 0.12 else h
                         break
-                if is_exterior or drop_y < h - 0.12:
+                if is_exterior or drop_y < h - 0.10:
                     bot_a = (a_pt[0], drop_y, a_pt[2])
                     bot_b = (b_pt[0], drop_y, b_pt[2])
-                    self._mesh_cliffs.append((a_pt, b_pt, bot_b, bot_a, nx, nz, _scale_rgb(cliff_base, 0.82 + (i % 2) * 0.22)))
+                    ndotl = max(0.0, nx * lx + nz * lz)
+                    shade = 0.68 + 0.52 * ndotl
+                    self._mesh_cliffs.append((a_pt, b_pt, bot_b, bot_a, nx, nz, _scale_rgb(cliff_base, shade)))
 
         start_body: list[CubeCoord] = [(0, 0, 0), (-1, 0, 1), (-1, 1, 0), (0, 1, -1)]
         self.snake: deque[CubeCoord] = deque(start_body)
@@ -267,10 +414,10 @@ class _Hex3DEngine:
     def start_if_intro(self) -> None:
         if self.phase == "intro":
             self.phase = "playing"
-            self.status_line = "Right-Only Active! Tap D / -> to pivot right."
+            self.status_line = "Tap D / -> to pivot right · W / ↑ to quick-step."
 
     def input_turn_right(self) -> str:
-        """Instant clockwise +60 deg heading pivot (skipping backward neck direction)."""
+        """Instant clockwise +60 deg heading pivot with rapid-tap combo grace."""
         if self.phase == "intro":
             self.start_if_intro()
             self.right_flash_ticks = 6
@@ -284,7 +431,22 @@ class _Hex3DEngine:
             cand = (cand + 1) % 6
         self.dir_idx = cand
         self.right_flash_ticks = 6
+
+        # Combo grace window: keep rapid 2x-4x taps from triggering an accidental mid-turn step
+        grace_cap = max(0.0, self.step_interval - 0.115)
+        if self.step_accum > grace_cap:
+            self.step_accum = grace_cap
         return "turn_right"
+
+    def input_quick_step(self) -> Optional[str]:
+        """Immediately advance one tile when pressing Up / W for crisp manual pacing."""
+        if self.phase == "intro":
+            self.start_if_intro()
+            return "start"
+        if self.phase != "playing":
+            return None
+        self.step_accum = 0.0
+        return self._logic_step()
 
     def input_turn_left_fault(self) -> str:
         self.left_fault_ticks = 14
@@ -363,7 +525,7 @@ class _Hex3DEngine:
 
         event: Optional[str] = None
         if self.phase == "intro":
-            self.cam_yaw = (self.cam_yaw + dt * 0.48) % (2.0 * math.pi)
+            self.cam_yaw = (self.cam_yaw + dt * 0.45) % (2.0 * math.pi)
         elif self.phase == "playing":
             self.step_accum += dt
             while self.step_accum >= self.step_interval:
@@ -376,7 +538,7 @@ class _Hex3DEngine:
 
             target_yaw = self.dir_idx * (math.pi / 3.0)
             yaw_diff = (target_yaw - self.cam_yaw + math.pi) % (2.0 * math.pi) - math.pi
-            self.cam_yaw = (self.cam_yaw + yaw_diff * min(1.0, dt * 6.5)) % (2.0 * math.pi)
+            self.cam_yaw = (self.cam_yaw + yaw_diff * min(1.0, dt * 8.5)) % (2.0 * math.pi)
 
             t = min(1.0, self.step_accum / max(0.01, self.step_interval))
             hx1, hz1 = _cube_to_world_xz(self.snake[0])
@@ -386,46 +548,54 @@ class _Hex3DEngine:
             tx = hx0 + (hx1 - hx0) * t
             ty = hy0 + (hy1 - hy0) * t
             tz = hz0 + (hz1 - hz0) * t
-            self.cam_target_x += (tx - self.cam_target_x) * min(1.0, dt * 10.0)
-            self.cam_target_y += (ty - self.cam_target_y) * min(1.0, dt * 8.0)
-            self.cam_target_z += (tz - self.cam_target_z) * min(1.0, dt * 10.0)
+            self.cam_target_x += (tx - self.cam_target_x) * min(1.0, dt * 11.0)
+            self.cam_target_y += (ty - self.cam_target_y) * min(1.0, dt * 9.0)
+            self.cam_target_z += (tz - self.cam_target_z) * min(1.0, dt * 11.0)
         elif self.phase == "victory":
             self.cam_yaw = (self.cam_yaw + dt * 0.65) % (2.0 * math.pi)
 
         return event
 
     def render_frame(self, width: int = DEFAULT_PIX_W, height: int = DEFAULT_PIX_H) -> Text:
-        """Render fine-grained multicolored 3D hex mosaic with a little green spotted snake."""
+        """Render 140x32 Quadrant-packed multicolored 3D hex terrain with 2x SSAA edges."""
         n_pix = width * height
         zbuf = [1e9] * n_pix
-        pbuf: list[RGB] = [VOID_RGB] * n_pix
+        pbuf = [VOID_INT] * n_pix
+
+        # Subtle sparse backdrop stars so floating 3D island has depth without clutter
+        for sx_i, sy_i, s_col in _STAR_OFFSETS:
+            if sx_i < width and sy_i < height:
+                twinkle = 0.65 + 0.35 * math.sin(self.elapsed * 2.3 + sx_i)
+                pbuf[sy_i * width + sx_i] = _pack_rgb(_scale_rgb(s_col, twinkle))
 
         fwd_x = math.cos(self.cam_yaw)
         fwd_z = math.sin(self.cam_yaw)
         right_x = -fwd_z
         right_z = fwd_x
 
-        pitch = 0.60  # Crisp ~34 deg fine-scale panoramic vantage
+        pitch = 0.65  # Crisp ~37 deg vantage showing terrain relief cleanly across 6-8 tiles
         cos_p = math.cos(pitch)
         sin_p = math.sin(pitch)
 
         if self.phase == "intro":
-            cam_dist = 9.4
+            cam_dist = 11.4
             cam_x = -fwd_x * cam_dist
             cam_y = cam_dist * math.tan(pitch) * 0.96
             cam_z = -fwd_z * cam_dist
         else:
-            cam_dist = 7.7
-            la_x = self.cam_target_x + fwd_x * 1.10
-            la_y = self.cam_target_y + 0.12
-            la_z = self.cam_target_z + fwd_z * 1.10
+            cam_dist = 10.2
+            la_x = self.cam_target_x + fwd_x * 1.15
+            la_y = self.cam_target_y + 0.14
+            la_z = self.cam_target_z + fwd_z * 1.15
             cam_x = la_x - fwd_x * cam_dist
             cam_y = la_y + cam_dist * math.tan(pitch) * 0.96
             cam_z = la_z - fwd_z * cam_dist
 
-        fov = width * 0.64  # Fine-grained proportional tiles inside compact card
+        # Quadrant 2x2 sub-pixels are 0.5x wide per physical cell unit -> fov_x = 2 * fov_y keeps circles round
+        fov_y = height * 1.44
+        fov_x = fov_y * 2.0
         cx = width * 0.5
-        cy = height * 0.52
+        cy = height * 0.54
 
         def project(wx: float, wy: float, wz: float) -> Optional[tuple[float, float, float]]:
             vx = wx - cam_x
@@ -437,93 +607,131 @@ class _Hex3DEngine:
             cz_local = -vy * sin_p + horz_fwd * cos_p
             if cz_local < 1.35:
                 return None
-            inv_z = fov / cz_local
-            return cx + cx_local * inv_z, cy - cy_local * inv_z, cz_local
+            inv_z = 1.0 / cz_local
+            return cx + cx_local * (fov_x * inv_z), cy - cy_local * (fov_y * inv_z), cz_local
 
-        def raster_tri(
+        def raster_poly_ssaa(
+            pts: list[tuple[float, float, float]],
+            base_rgb: RGB,
+            z_bias: float = 0.0,
+        ) -> None:
+            """
+            Seam-free convex polygon rasterizer (quads & hexagons) with edge-aware
+            2x2 supersampling anti-aliasing (280x64 edge precision).
+            """
+            n_v = len(pts)
+            x0, y0, z0 = pts[0]
+            x1, y1, z1 = pts[1]
+            x2, y2, z2 = pts[2]
+            area = (x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0)
+            if abs(area) < 0.08:
+                return
+            sign = 1.0 if area > 0.0 else -1.0
+
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            min_x = max(0, int(min(xs) - 0.5))
+            max_x = min(width - 1, int(max(xs) + 0.5))
+            min_y = max(0, int(min(ys) - 0.5))
+            max_y = min(height - 1, int(max(ys) + 0.5))
+            if min_x > max_x or min_y > max_y:
+                return
+
+            # Normalized screen-pixel distance edge functions: e_k(x, y) = A*x + B*y + C
+            edges: list[tuple[float, float, float]] = []
+            for i in range(n_v):
+                ax, ay, _ = pts[i]
+                bx, by, _ = pts[(i + 1) % n_v]
+                dx_e = bx - ax
+                dy_e = by - ay
+                norm = math.hypot(dx_e * 0.5, dy_e)
+                if norm < 1e-6:
+                    continue
+                inv_n = sign / norm
+                A = -dy_e * inv_n
+                B = dx_e * inv_n
+                C = (dy_e * ax - dx_e * ay) * inv_n
+                edges.append((A, B, C))
+            if len(edges) < 3:
+                return
+
+            # Plane depth equation z(x, y) from first 3 non-collinear vertices
+            inv_area = 1.0 / area
+            dz_dx = ((y1 - y2) * z0 + (y2 - y0) * z1 + (y0 - y1) * z2) * inv_area
+            dz_dy = ((x2 - x1) * z0 + (x0 - x2) * z1 + (x1 - x0) * z2) * inv_area
+            z_base = z0 - dz_dx * x0 - dz_dy * y0 + z_bias
+
+            c_packed = _pack_rgb(base_rgb)
+            sx_start = min_x + 0.5
+            for py in range(min_y, max_y + 1):
+                py_c = py + 0.5
+                row_off = py * width
+                depth = z_base + dz_dx * sx_start + dz_dy * py_c
+                e_vals = [A * sx_start + B * py_c + C for A, B, C in edges]
+                n_e = len(edges)
+
+                for px in range(min_x, max_x + 1):
+                    min_d = 1e9
+                    for val in e_vals:
+                        if val < min_d:
+                            min_d = val
+
+                    if min_d >= 0.65:
+                        idx = row_off + px
+                        if depth < zbuf[idx]:
+                            zbuf[idx] = depth
+                            fog = (depth - 7.8) * 0.048
+                            if fog <= 0.0:
+                                pbuf[idx] = c_packed
+                            elif fog >= 0.44:
+                                pbuf[idx] = _mix_int(c_packed, VOID_INT, 0.44)
+                            else:
+                                pbuf[idx] = _mix_int(c_packed, VOID_INT, fog)
+                    elif min_d > -0.65:
+                        # Boundary 2x2 sub-sample SSAA check (+/- 0.25 sub-pixel grid)
+                        h00 = h10 = h01 = h11 = 1
+                        for k_e in range(n_e):
+                            ev = e_vals[k_e]
+                            Ak, Bk, _ = edges[k_e]
+                            qax = Ak * 0.25
+                            qby = Bk * 0.25
+                            if ev - qax - qby < 0.0:
+                                h00 = 0
+                            if ev + qax - qby < 0.0:
+                                h10 = 0
+                            if ev - qax + qby < 0.0:
+                                h01 = 0
+                            if ev + qax + qby < 0.0:
+                                h11 = 0
+                        hits = h00 + h10 + h01 + h11
+                        if hits > 0:
+                            idx = row_off + px
+                            fog = (depth - 7.8) * 0.048
+                            if fog <= 0.0:
+                                shaded = c_packed
+                            elif fog >= 0.44:
+                                shaded = _mix_int(c_packed, VOID_INT, 0.44)
+                            else:
+                                shaded = _mix_int(c_packed, VOID_INT, fog)
+                            if hits == 4:
+                                if depth < zbuf[idx]:
+                                    zbuf[idx] = depth
+                                    pbuf[idx] = shaded
+                            elif depth < zbuf[idx] + 0.18:
+                                pbuf[idx] = _mix_int(pbuf[idx], shaded, hits * 0.25)
+
+                    for k_e in range(n_e):
+                        e_vals[k_e] += edges[k_e][0]
+                    depth += dz_dx
+
+        def raster_tri_ssaa(
             p0: tuple[float, float, float],
             p1: tuple[float, float, float],
             p2: tuple[float, float, float],
             base_rgb: RGB,
             z_bias: float = 0.0,
         ) -> None:
-            x0, y0, z0 = p0
-            x1, y1, z1 = p1
-            x2, y2, z2 = p2
-            area = (x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0)
-            if abs(area) < 0.05:
-                return
-            min_x = max(0, int(min(x0, x1, x2)))
-            max_x = min(width - 1, int(max(x0, x1, x2)))
-            min_y = max(0, int(min(y0, y1, y2)))
-            max_y = min(height - 1, int(max(y0, y1, y2)))
-            if min_x > max_x or min_y > max_y:
-                return
-
-            inv_abs = 1.0 / abs(area)
-            sign = 1.0 if area > 0.0 else -1.0
-            for py in range(min_y, max_y + 1):
-                py_c = py + 0.5
-                row_off = py * width
-                for px in range(min_x, max_x + 1):
-                    px_c = px + 0.5
-                    w0 = ((x1 - px_c) * (y2 - py_c) - (y1 - py_c) * (x2 - px_c)) * sign
-                    if w0 < -0.04:
-                        continue
-                    w1 = ((x2 - px_c) * (y0 - py_c) - (y2 - py_c) * (x0 - px_c)) * sign
-                    if w1 < -0.04:
-                        continue
-                    w2 = ((x0 - px_c) * (y1 - py_c) - (y0 - py_c) * (x1 - px_c)) * sign
-                    if w2 < -0.04:
-                        continue
-                    depth = (w0 * z0 + w1 * z1 + w2 * z2) * inv_abs + z_bias
-                    idx = row_off + px
-                    if depth < zbuf[idx]:
-                        zbuf[idx] = depth
-                        fog = max(0.0, min(0.54, (depth - 5.6) / 17.5))
-                        pbuf[idx] = _mix_rgb(base_rgb, VOID_RGB, fog)
-
-        head_cell = self.snake[0]
-        aim_cell = self._next_cell()
-        pulse = 0.5 + 0.5 * math.sin(self.elapsed * 6.0)
-
-        # 1. Cliffs (back-face culled)
-        for pa_t, pb_t, pb_b, pa_b, nx, nz, c_col in self._mesh_cliffs:
-            if (pa_t[0] - cam_x) * nx + (pa_t[2] - cam_z) * nz >= 0.12:
-                continue
-            p0 = project(*pa_t)
-            p1 = project(*pb_t)
-            p2 = project(*pb_b)
-            p3 = project(*pa_b)
-            if p0 and p1 and p2 and p3:
-                raster_tri(p0, p1, p2, c_col, z_bias=0.05)
-                raster_tri(p0, p2, p3, c_col, z_bias=0.05)
-
-        # 2. Multicolored 3D Honeycomb Plateaus
-        for cell, h, outer_verts, inner_verts, tile_col, rim_col in self._mesh_tiles:
-            p_out = [project(*v) for v in outer_verts]
-            p_in = [project(*v) for v in inner_verts]
-            if not (all(pt is not None for pt in p_out) and all(pt is not None for pt in p_in)):
-                continue
-            po = [pt for pt in p_out if pt is not None]
-            pi = [pt for pt in p_in if pt is not None]
-
-            if cell == self.orb:
-                bezel_rgb = (255, 245, 130)
-                plate_rgb = _mix_rgb(tile_col, (255, 225, 80), 0.35 + 0.35 * pulse)
-            elif cell == aim_cell and self.phase == "playing":
-                bezel_rgb = (240, 253, 244)
-                plate_rgb = _scale_rgb(tile_col, 1.25)
-            elif cell == head_cell:
-                bezel_rgb = (220, 255, 230)
-                plate_rgb = _scale_rgb(tile_col, 1.18)
-            else:
-                bezel_rgb = rim_col
-                plate_rgb = tile_col
-
-            for ti in range(1, 5):
-                raster_tri(po[0], po[ti], po[ti + 1], bezel_rgb, z_bias=0.02)
-                raster_tri(pi[0], pi[ti], pi[ti + 1], plate_rgb, z_bias=0.0)
+            raster_poly_ssaa([p0, p1, p2], base_rgb, z_bias=z_bias)
 
         def stamp_disk(
             wx: float,
@@ -540,45 +748,120 @@ class _Hex3DEngine:
             if proj is None:
                 return
             sx, sy, cz = proj
-            r_px = max(0.95, radius_world * (fov / cz))
-            ry_px = r_px * (0.55 if flat_shadow else 1.0)
-            r2 = r_px * r_px
-            x0 = max(0, int(sx - r_px))
-            x1 = min(width - 1, int(sx + r_px))
-            y0 = max(0, int(sy - ry_px))
-            y1 = min(height - 1, int(sy + ry_px))
+            rx_px = max(1.05, radius_world * (fov_x / cz))
+            ry_px = max(0.75, radius_world * (fov_y / cz) * (0.52 if flat_shadow else 1.0))
+            inv_rx = 1.0 / rx_px
+            inv_ry = 1.0 / ry_px
+
+            x0 = max(0, int(sx - rx_px - 0.6))
+            x1 = min(width - 1, int(sx + rx_px + 0.6))
+            y0 = max(0, int(sy - ry_px - 0.6))
+            y1 = min(height - 1, int(sy + ry_px + 0.6))
             depth = cz + z_bias
-            fog = 0.0 if flat_shadow else max(0.0, min(0.35, (depth - 5.2) / 20.0))
-            c_main = core_rgb if flat_shadow else _mix_rgb(core_rgb, VOID_RGB, fog)
-            c_spot = spot_rgb if flat_shadow else _mix_rgb(spot_rgb, VOID_RGB, fog * 0.6)
-            ry_ratio = (r_px / ry_px) ** 2 if flat_shadow else 1.0
+            fog = 0.0 if flat_shadow else max(0.0, min(0.30, (depth - 7.5) / 22.0))
+            c_main = _pack_rgb(core_rgb if flat_shadow else _mix_rgb(core_rgb, VOID_RGB, fog))
+            c_spot = _pack_rgb(spot_rgb if flat_shadow else _mix_rgb(spot_rgb, VOID_RGB, fog * 0.55))
+
             for py in range(y0, y1 + 1):
-                dy = (py + 0.5) - sy
-                dy2 = dy * dy * ry_ratio
+                ny = ((py + 0.5) - sy) * inv_ry
+                ny2 = ny * ny
                 row_off = py * width
                 for px in range(x0, x1 + 1):
-                    dx = (px + 0.5) - sx
-                    d2 = dx * dx + dy2
-                    if d2 <= r2 and depth < zbuf[row_off + px]:
+                    nx = ((px + 0.5) - sx) * inv_rx
+                    nd2 = nx * nx + ny2
+                    if nd2 <= 1.22:
                         idx = row_off + px
-                        zbuf[idx] = depth
-                        if flat_shadow:
-                            pbuf[idx] = c_main
-                        elif spot_center:
-                            pbuf[idx] = c_spot if d2 <= r2 * 0.34 else c_main
-                        else:
-                            pbuf[idx] = c_spot if (dx < -r_px * 0.14 and dy < -r_px * 0.14) or d2 < r2 * 0.22 else c_main
+                        if nd2 <= 0.78:
+                            if depth < zbuf[idx]:
+                                zbuf[idx] = depth
+                                if flat_shadow:
+                                    pbuf[idx] = c_main
+                                elif spot_center:
+                                    pbuf[idx] = c_spot if nd2 <= 0.24 else c_main
+                                else:
+                                    pbuf[idx] = c_spot if (nx < -0.18 and ny < -0.18) or nd2 < 0.18 else c_main
+                        elif depth < zbuf[idx] + 0.18:
+                            cov = max(0.0, min(1.0, (1.10 - math.sqrt(nd2)) * 3.1))
+                            if cov > 0.05:
+                                pbuf[idx] = _mix_int(pbuf[idx], c_main, cov)
 
-        # 3. Delicate Crisp Beacon Crystal + Subtle Sky Beam
+        head_cell = self.snake[0]
+        aim_cell = self._next_cell()
+        pulse = 0.5 + 0.5 * math.sin(self.elapsed * 6.5)
+
+        # 1. Back-to-front Lambert-Shaded 3D Cliffs (clean SSAA edge blending over sky/lower tiles)
+        cliff_draw: list[tuple[float, list[tuple[float, float, float]], RGB]] = []
+        for pa_t, pb_t, pb_b, pa_b, nx, nz, c_col in self._mesh_cliffs:
+            if (pa_t[0] - cam_x) * nx + (pa_t[2] - cam_z) * nz >= 0.12:
+                continue
+            p0 = project(*pa_t)
+            p1 = project(*pb_t)
+            p2 = project(*pb_b)
+            p3 = project(*pa_b)
+            if p0 and p1 and p2 and p3:
+                cz_avg = (p0[2] + p1[2] + p2[2] + p3[2]) * 0.25
+                cliff_draw.append((cz_avg, [p0, p1, p2, p3], c_col))
+        cliff_draw.sort(key=lambda item: item[0], reverse=True)
+        for _, qpts, c_col in cliff_draw:
+            raster_poly_ssaa(qpts, c_col, z_bias=0.05)
+
+        # 2. Back-to-front Multicolored 3D Honeycomb Plateaus with seam-free SSAA bevels
+        tile_draw: list[tuple[float, list[tuple[float, float, float]], list[tuple[float, float, float]], RGB, RGB]] = []
+        for cell, h, outer_verts, inner_verts, tile_col, rim_col in self._mesh_tiles:
+            p_out = [project(*v) for v in outer_verts]
+            p_in = [project(*v) for v in inner_verts]
+            if not (all(pt is not None for pt in p_out) and all(pt is not None for pt in p_in)):
+                continue
+            po = [pt for pt in p_out if pt is not None]
+            pi = [pt for pt in p_in if pt is not None]
+
+            if cell == self.orb:
+                bezel_rgb = (255, 245, 130)
+                plate_rgb = _mix_rgb(tile_col, (255, 225, 80), 0.35 + 0.35 * pulse)
+            elif cell == aim_cell and self.phase == "playing":
+                bezel_rgb = (186, 255, 212) if self.right_flash_ticks == 0 else (255, 255, 255)
+                plate_rgb = _mix_rgb(tile_col, (110, 231, 183), 0.25 + 0.20 * pulse)
+            elif cell == head_cell:
+                bezel_rgb = (210, 255, 224)
+                plate_rgb = _scale_rgb(tile_col, 1.18)
+            else:
+                bezel_rgb = rim_col
+                plate_rgb = tile_col
+
+            cz_mid = sum(pt[2] for pt in po) / 6.0
+            tile_draw.append((cz_mid, po, pi, bezel_rgb, plate_rgb))
+
+        tile_draw.sort(key=lambda item: item[0], reverse=True)
+        for _, po, pi, bezel_rgb, plate_rgb in tile_draw:
+            raster_poly_ssaa(po, bezel_rgb, z_bias=0.02)
+            raster_poly_ssaa(pi, plate_rgb, z_bias=0.0)
+
+        # 3. 3D Faceted Diamond Beacon Crystal + Subtle Sky Beam
         ox, oz = _cube_to_world_xz(self.orb)
         oh = self.heights[self.orb]
-        oy = oh + 0.44 + 0.14 * math.sin(self.elapsed * 5.0)
-        stamp_disk(ox, oh + 0.03, oz, 0.28, (6, 8, 16), (6, 8, 16), z_bias=-0.05, flat_shadow=True)
-        for step_h in (0.85, 1.18, 1.50):
-            stamp_disk(ox, oh + step_h, oz, 0.08, (254, 240, 138), (255, 255, 240), z_bias=-0.22)
-        stamp_disk(ox, oy, oz, 0.28, (250, 204, 21), (255, 255, 235), z_bias=-0.38)
+        oy = oh + 0.44 + 0.12 * math.sin(self.elapsed * 5.0)
+        stamp_disk(ox, oh + 0.03, oz, 0.26, (6, 8, 16), (6, 8, 16), z_bias=-0.04, flat_shadow=True)
+        for step_h in (0.90, 1.24, 1.56):
+            stamp_disk(ox, oh + step_h, oz, 0.065, (254, 240, 138), (255, 255, 240), z_bias=-0.20)
+        spin = self.elapsed * 2.4
+        r_gem = 0.26
+        apex = project(ox, oy + 0.34, oz)
+        nadir = project(ox, oy - 0.24, oz)
+        ring_pts = [
+            project(ox + r_gem * math.cos(spin + k * math.pi * 0.5), oy + 0.04, oz + r_gem * math.sin(spin + k * math.pi * 0.5))
+            for k in range(4)
+        ]
+        if apex and nadir and all(pt is not None for pt in ring_pts):
+            rp = [pt for pt in ring_pts if pt is not None]
+            gem_shades = ((254, 249, 195), (250, 204, 21), (234, 179, 8), (202, 138, 4))
+            for k in range(4):
+                nk = (k + 1) % 4
+                raster_tri_ssaa(apex, rp[k], rp[nk], gem_shades[k], z_bias=-0.38)
+                raster_tri_ssaa(nadir, rp[nk], rp[k], _scale_rgb(gem_shades[k], 0.78), z_bias=-0.36)
+        else:
+            stamp_disk(ox, oy, oz, 0.24, (250, 204, 21), (255, 255, 235), z_bias=-0.38)
 
-        # 4. Little Green Spotted Snake (`pykuai`) gliding across multicolored tiles
+        # 4. Crisp Visual Aim Pointer (dotted sight-line onto aim_cell so turns feel instantaneous)
         t = min(1.0, self.step_accum / max(0.01, self.step_interval)) if self.phase == "playing" else 1.0
         seg_pos: list[tuple[float, float, float, float]] = []
         seg_count = len(self.snake)
@@ -592,41 +875,62 @@ class _Hex3DEngine:
             wx = x0 + (x1 - x0) * t
             wz = z0 + (z1 - z0) * t
             ground_y = y0 + (y1 - y0) * t
-            seg_pos.append((wx, ground_y + 0.34, wz, ground_y))
+            seg_pos.append((wx, ground_y + 0.23, wz, ground_y))
 
+        hx_w, hy_w, hz_w, _ = seg_pos[0]
+        head_ang = self.dir_idx * (math.pi / 3.0)
+        fx, fz = math.cos(head_ang), math.sin(head_ang)
+        rx, rz = -fz, fx
+
+        if self.phase == "playing":
+            aim_ok = aim_cell in self.valid_cells and aim_cell not in set(list(self.snake)[:-1])
+            dot_col = (248, 113, 113) if not aim_ok else ((255, 255, 255) if self.right_flash_ticks > 0 else (110, 255, 175))
+            ax, az = _cube_to_world_xz(aim_cell)
+            ay = self.heights.get(aim_cell, hy_w - 0.23) + 0.09
+            for frac in (0.42, 0.72):
+                stamp_disk(
+                    hx_w + (ax - hx_w) * frac,
+                    hy_w - 0.08 + (ay - (hy_w - 0.08)) * frac,
+                    hz_w + (az - hz_w) * frac,
+                    0.072 if frac < 0.6 else 0.105,
+                    dot_col,
+                    (255, 255, 255),
+                    z_bias=-0.28,
+                )
+
+        # 5. Sleek Green Spotted Snake (`pykuai`) with dense interpolated spine
         for idx in range(seg_count - 1, -1, -1):
             wx, wy, wz, gy = seg_pos[idx]
             ratio = idx / max(1, seg_count - 1)
-            stamp_disk(wx, gy + 0.03, wz, 0.28, (4, 6, 12), (4, 6, 12), z_bias=-0.06, flat_shadow=True)
+            stamp_disk(wx, gy + 0.025, wz, 0.21 - 0.05 * ratio, (4, 6, 12), (4, 6, 12), z_bias=-0.05, flat_shadow=True)
 
             if self.phase == "gameover":
                 body_rgb = (239, 68, 68) if idx == 0 else (153, 27, 27)
                 spot_rgb = (254, 202, 202)
-                rad = 0.34 if idx == 0 else 0.26
+                rad = 0.26 if idx == 0 else max(0.14, 0.22 - 0.06 * ratio)
             elif idx == 0:
-                # Bright emerald head with crisp lighter crown
-                body_rgb = (22, 196, 86) if self.right_flash_ticks == 0 else (74, 222, 128)
+                body_rgb = (22, 198, 86) if self.right_flash_ticks == 0 else (74, 232, 132)
                 spot_rgb = (187, 247, 208)
-                rad = 0.35
+                rad = 0.27
             else:
-                # Green body with alternating bright lime-gold and dark-forest dorsal spots!
-                base_g = int(205 - 45 * ratio)
-                body_rgb = (16, base_g, 64)
+                base_g = int(206 - 50 * ratio)
+                body_rgb = (16, base_g, 62)
                 spot_rgb = (217, 249, 157) if idx % 2 == 1 else (6, 78, 42)
-                rad = 0.30 - 0.07 * ratio
+                rad = max(0.13, 0.23 - 0.08 * ratio)
 
             if idx < seg_count - 1:
                 nx_w, ny_w, nz_w, _ = seg_pos[idx + 1]
-                # Connecting bridge in matching green
-                stamp_disk(
-                    (wx + nx_w) * 0.5,
-                    (wy + ny_w) * 0.5,
-                    (wz + nz_w) * 0.5,
-                    max(0.18, rad * 0.82),
-                    (16, 175, 58) if self.phase != "gameover" else (153, 27, 27),
-                    (74, 222, 128),
-                    z_bias=-0.28,
-                )
+                bridge_rgb = (18, 178, 62) if self.phase != "gameover" else (153, 27, 27)
+                for bfrac in (0.34, 0.68):
+                    stamp_disk(
+                        wx + (nx_w - wx) * bfrac,
+                        wy + (ny_w - wy) * bfrac,
+                        wz + (nz_w - wz) * bfrac,
+                        max(0.11, rad * 0.80),
+                        bridge_rgb,
+                        (74, 222, 128),
+                        z_bias=-0.27,
+                    )
 
             stamp_disk(
                 wx,
@@ -635,32 +939,39 @@ class _Hex3DEngine:
                 rad,
                 body_rgb,
                 spot_rgb,
-                z_bias=-0.36,
+                z_bias=-0.34,
                 spot_center=(idx > 0 and self.phase != "gameover"),
             )
 
-        # Tiny twin dark eyes on green snake head facing `dir_idx`
-        hx_w, hy_w, hz_w, _ = seg_pos[0]
-        head_ang = self.dir_idx * (math.pi / 3.0)
-        fx, fz = math.cos(head_ang), math.sin(head_ang)
-        rx, rz = -fz, fx
-        eye_rgb = (10, 35, 18) if self.right_flash_ticks == 0 else (255, 255, 255)
-        for side in (-0.15, 0.15):
+        # Tiny twin eyes + flicking coral tongue on green snake head facing `dir_idx`
+        eye_rgb = (8, 30, 14) if self.right_flash_ticks == 0 else (255, 255, 255)
+        for side in (-0.11, 0.11):
             stamp_disk(
-                hx_w + fx * 0.24 + rx * side,
-                hy_w + 0.10,
-                hz_w + fz * 0.24 + rz * side,
-                0.08,
+                hx_w + fx * 0.19 + rx * side,
+                hy_w + 0.09,
+                hz_w + fz * 0.19 + rz * side,
+                0.062,
                 eye_rgb,
                 eye_rgb,
                 z_bias=-0.46,
             )
+        if self.phase in ("playing", "intro") and math.sin(self.elapsed * 9.0) > 0.15:
+            stamp_disk(
+                hx_w + fx * 0.30,
+                hy_w - 0.02,
+                hz_w + fz * 0.30,
+                0.045,
+                (251, 113, 133),
+                (254, 205, 211),
+                z_bias=-0.44,
+            )
 
-        # 5. Pack Half-Block Frame
+        # 6. Pack 2x2 Quadrant Characters (140x32 sub-pixels -> 70x16 terminal cells)
         out = Text()
         rows_out = height // 2
-        for pair_idx in range(rows_out):
-            top_off = (pair_idx * 2) * width
+        cols_out = width // 2
+        for cy_i in range(rows_out):
+            top_off = (cy_i * 2) * width
             bot_off = top_off + width
             run_chars: list[str] = []
             run_style: Optional[str] = None
@@ -670,38 +981,33 @@ class _Hex3DEngine:
                     out.append("".join(run_chars), style=run_style or "")
                     run_chars.clear()
 
-            for x in range(width):
-                trgb = pbuf[top_off + x]
-                brgb = pbuf[bot_off + x]
-                if trgb == VOID_RGB and brgb == VOID_RGB:
-                    ch, style = " ", f"on {VOID_HEX}"
-                elif trgb == brgb:
-                    tc = _rgb_to_hex(trgb)
-                    ch, style = "█", f"{tc} on {VOID_HEX}"
-                elif brgb == VOID_RGB:
-                    tc = _rgb_to_hex(trgb)
-                    ch, style = "▀", f"{tc} on {VOID_HEX}"
-                elif trgb == VOID_RGB:
-                    bc = _rgb_to_hex(brgb)
-                    ch, style = "▄", f"{bc} on {VOID_HEX}"
+            for cx_i in range(cols_out):
+                sx_base = cx_i * 2
+                c0 = pbuf[top_off + sx_base]
+                c1 = pbuf[top_off + sx_base + 1]
+                c2 = pbuf[bot_off + sx_base]
+                c3 = pbuf[bot_off + sx_base + 1]
+                ch, fg_i, bg_i = _solve_quad_cell(c0, c1, c2, c3)
+                if ch == " ":
+                    style = f"on {VOID_HEX}"
+                elif ch == "█":
+                    style = f"{_int_to_hex(fg_i)} on {VOID_HEX}"
                 else:
-                    tc = _rgb_to_hex(trgb)
-                    bc = _rgb_to_hex(brgb)
-                    ch, style = "▀", f"{tc} on {bc}"
+                    style = f"{_int_to_hex(fg_i)} on {_int_to_hex(bg_i)}"
 
                 if style != run_style:
                     flush_run()
                     run_style = style
                 run_chars.append(ch)
             flush_run()
-            if pair_idx + 1 < rows_out:
+            if cy_i + 1 < rows_out:
                 out.append("\n")
 
         return out
 
 
 def _build_hex3d_app():
-    """Build compact, centered 78x24 studio card matching PyKuai's core tools (`ifc`/`ytd`)."""
+    """Build compact, centered 78x24 studio card without title, SFX button, or RIGHT-ONLY tag."""
     from textual import events
     from textual.app import ComposeResult
     from textual.binding import Binding
@@ -711,10 +1017,9 @@ def _build_hex3d_app():
     from pykuai.core.tui import (
         ActionChip,
         CYBER_TUI_CSS,
+        HelpChip,
         HelpModalScreen,
         PyKuaiStudioApp,
-        SfxToggleChip,
-        StudioHeader,
     )
 
     hex_css = CYBER_TUI_CSS + """
@@ -723,11 +1028,17 @@ def _build_hex3d_app():
         max-width: 96%;
         height: 24;
         max-height: 96%;
-        padding: 0 2;
+        padding: 0 1;
+    }
+
+    #hud-row {
+        width: 100%;
+        height: 1;
+        margin-bottom: 0;
     }
 
     #hex-hud {
-        width: 100%;
+        width: 1fr;
         height: 1;
         text-align: center;
         color: #9ae6b4;
@@ -760,21 +1071,45 @@ def _build_hex3d_app():
         text-align: center;
         color: #E0E0E0;
     }
+
+    .hex-actions {
+        height: 1;
+        layout: horizontal;
+        margin-top: 1;
+        margin-bottom: 0;
+    }
     """
 
     class Hex3DApp(PyKuaiStudioApp):
         CSS = hex_css
-        HELP_TITLE = "PyKuai: Hex 3D · Story & Controls"
+        HELP_TITLE = "Hex 3D · Story & Controls"
         HELP_TEXT = HEX3D_HELP
         BINDINGS = [
             *PyKuaiStudioApp.BINDINGS,
-            Binding("question_mark", "show_help", "Help", show=False),
+            Binding("question_mark", "show_help", "Help", show=False, priority=True),
+            Binding("right", "turn_right", "Turn Right", show=False, priority=True),
+            Binding("d", "turn_right", "Turn Right", show=False, priority=True),
+            Binding("D", "turn_right", "Turn Right", show=False, priority=True),
+            Binding("left", "fault_left", "Broken Left", show=False, priority=True),
+            Binding("a", "fault_left", "Broken Left", show=False, priority=True),
+            Binding("A", "fault_left", "Broken Left", show=False, priority=True),
+            Binding("up", "quick_step", "Quick Step", show=False, priority=True),
+            Binding("w", "quick_step", "Quick Step", show=False, priority=True),
+            Binding("W", "quick_step", "Quick Step", show=False, priority=True),
+            Binding("space", "toggle_pause", "Start/Pause", show=False, priority=True),
+            Binding("p", "toggle_pause", "Start/Pause", show=False, priority=True),
+            Binding("P", "toggle_pause", "Start/Pause", show=False, priority=True),
+            Binding("r", "restart_game", "Restart", show=False, priority=True),
+            Binding("R", "restart_game", "Restart", show=False, priority=True),
+            Binding("q", "exit_game", "Exit", show=False, priority=True),
+            Binding("Q", "exit_game", "Exit", show=False, priority=True),
         ]
 
         def __init__(self) -> None:
             super().__init__()
             self.engine = _Hex3DEngine()
             self._timer = None
+            self._last_tick = time.perf_counter()
             self.pix_w = DEFAULT_PIX_W
             self.pix_h = DEFAULT_PIX_H
 
@@ -787,12 +1122,12 @@ def _build_hex3d_app():
             card.styles.width = card_w
             card.styles.height = card_h
 
-            # Fit cleanly centered inside card chrome (6 cols H, 9 rows V)
-            view_cols = max(36, min(DEFAULT_PIX_W, card_w - 10))
+            # Fit cleanly centered inside exact 78x24 card chrome (70x16 cells = 140x32 Quadrant sub-pixels)
+            view_cols = max(36, min(DEFAULT_PIX_W // 2, card_w - 8))
             if view_cols % 2 == 1:
                 view_cols -= 1
-            view_rows = max(9, min(DEFAULT_PIX_H // 2, card_h - 11))
-            self.pix_w = view_cols
+            view_rows = max(9, min(DEFAULT_PIX_H // 2, card_h - 8))
+            self.pix_w = view_cols * 2
             self.pix_h = view_rows * 2
 
             vp = self.query_one("#hex-viewport", Static)
@@ -801,24 +1136,27 @@ def _build_hex3d_app():
 
         def compose(self) -> ComposeResult:
             with Vertical(id="studio-card"):
-                yield StudioHeader("🐍 PyKuai: Hex 3D")
-                yield Static("", id="hex-hud")
+                with Horizontal(id="hud-row"):
+                    yield Static("", id="hex-hud")
+                    yield HelpChip(tooltip="Help (F1 / ?)")
                 with Center(id="viewport-wrap"):
                     yield Static("", id="hex-viewport")
                 yield Static("", id="status-line")
 
-                with Horizontal(classes="action-bar"):
+                with Horizontal(classes="hex-actions"):
                     yield ActionChip("↻ Restart", variant_class="-preset", id="btn-restart")
                     yield ActionChip("▶ Start", variant_class="-file", id="btn-pause")
                     yield ActionChip("✕ Back", variant_class="-danger", id="btn-back")
-                    yield Static("", classes="action-spacer")
-                    yield SfxToggleChip(id="btn-sfx")
 
         def on_mount(self) -> None:
+            for chip in self.query(ActionChip):
+                chip.can_focus = False
+            self.query_one("#btn-help", HelpChip).can_focus = False
             play_sfx("snake")
             self._recompute_viewport()
             self._sync_view()
-            self._timer = self.set_interval(1.0 / 36.0, self._on_tick)
+            self._last_tick = time.perf_counter()
+            self._timer = self.set_interval(1.0 / 32.0, self._on_tick)
 
         def on_resize(self, event: events.Resize) -> None:
             self._recompute_viewport()
@@ -830,8 +1168,7 @@ def _build_hex3d_app():
             hud = (
                 f"[bold #00FF00]SCORE[/] {e.score:<4} "
                 f"[bold #FF9800]BEST[/] {e.best_score:<4} "
-                f"[bold #22d3ee]{stage_name}[/] ({e.stage_orbs}/{e.stage_goal}) "
-                f"[bold #f472b6]RIGHT-ONLY[/]"
+                f"[bold #22d3ee]{stage_name}[/] ({e.stage_orbs}/{e.stage_goal})"
             )
             self.query_one("#hex-hud", Static).update(hud)
 
@@ -842,8 +1179,9 @@ def _build_hex3d_app():
 
             st_w = self.query_one("#status-line", Static)
             line = e.status_line
-            if len(line) > self.pix_w + 6:
-                line = line[: self.pix_w + 5] + "…"
+            max_chars = max(40, (self.pix_w // 2) + 4)
+            if len(line) > max_chars:
+                line = line[: max_chars - 1] + "…"
             if e.left_fault_ticks > 0 or e.phase == "gameover":
                 st_w.update(f"[bold #FF5252]{line}[/bold #FF5252]")
             elif e.phase == "victory":
@@ -859,10 +1197,7 @@ def _build_hex3d_app():
             else:
                 pause_btn.label = "⏸ Pause"
 
-        def _on_tick(self) -> None:
-            if isinstance(self.screen, HelpModalScreen):
-                return
-            ev = self.engine.advance_frame(1.0 / 36.0)
+        def _play_step_event(self, ev: Optional[str]) -> None:
             if ev == "orb":
                 play_sfx("key")
             elif ev == "stage":
@@ -871,7 +1206,53 @@ def _build_hex3d_app():
                 play_sfx("paste")
             elif ev in ("gameover", "victory"):
                 play_sfx("snake" if ev == "victory" else "paste")
+
+        def _on_tick(self) -> None:
+            now = time.perf_counter()
+            dt = min(0.08, max(0.005, now - self._last_tick))
+            self._last_tick = now
+            if isinstance(self.screen, HelpModalScreen):
+                return
+            ev = self.engine.advance_frame(dt)
+            self._play_step_event(ev)
             self._sync_view()
+
+        def action_turn_right(self) -> None:
+            if isinstance(self.screen, HelpModalScreen):
+                return
+            fb = self.engine.input_turn_right()
+            play_sfx("enter" if fb == "start" else "click")
+            self._sync_view()
+
+        def action_fault_left(self) -> None:
+            if isinstance(self.screen, HelpModalScreen):
+                return
+            self.engine.input_turn_left_fault()
+            play_sfx("paste")
+            self._sync_view()
+
+        def action_quick_step(self) -> None:
+            if isinstance(self.screen, HelpModalScreen):
+                return
+            ev = self.engine.input_quick_step()
+            self._play_step_event(ev)
+            self._sync_view()
+
+        def action_toggle_pause(self) -> None:
+            if isinstance(self.screen, HelpModalScreen):
+                return
+            self._toggle_pause()
+
+        def action_restart_game(self) -> None:
+            if isinstance(self.screen, HelpModalScreen):
+                return
+            self._restart()
+
+        def action_exit_game(self) -> None:
+            if isinstance(self.screen, HelpModalScreen):
+                self.screen.action_dismiss_help()
+                return
+            self._exit_game()
 
         def _toggle_pause(self) -> None:
             if self.engine.phase == "intro":
@@ -884,13 +1265,14 @@ def _build_hex3d_app():
             elif self.engine.phase == "paused":
                 play_sfx("click")
                 self.engine.phase = "playing"
-                self.engine.status_line = "Tap D / -> to pivot right toward star!"
+                self.engine.status_line = "Tap D / -> to pivot right · W / ↑ to quick-step."
             self._sync_view()
 
         def _restart(self) -> None:
             record_high_score("hex", self.engine.score)
             play_sfx("snake")
             self.engine.reset(show_intro=False)
+            self._last_tick = time.perf_counter()
             self._sync_view()
 
         def _exit_game(self) -> None:
@@ -901,37 +1283,8 @@ def _build_hex3d_app():
         def action_cancel(self) -> None:
             self._exit_game()
 
-        def on_key(self, event: events.Key) -> None:
-            if isinstance(self.screen, HelpModalScreen):
-                return
-            k = event.key.lower()
-            if k in ("right", "d"):
-                event.stop()
-                fb = self.engine.input_turn_right()
-                play_sfx("enter" if fb == "start" else "click")
-                self._sync_view()
-            elif k in ("left", "a"):
-                event.stop()
-                self.engine.input_turn_left_fault()
-                play_sfx("paste")
-                self._sync_view()
-            elif k in ("space", "p"):
-                event.stop()
-                self._toggle_pause()
-            elif k == "r":
-                event.stop()
-                self._restart()
-            elif k in ("q", "escape"):
-                event.stop()
-                self._exit_game()
-            elif event.character == "?":
-                event.stop()
-                self.action_show_help()
-
         def on_button_pressed(self, event: Button.Pressed) -> None:
             btn = event.button
-            if isinstance(btn, SfxToggleChip):
-                return
             if btn.id == "btn-restart":
                 self._restart()
             elif btn.id == "btn-pause":
@@ -943,10 +1296,10 @@ def _build_hex3d_app():
 
 
 class PyKuaiHex3DGame(ArcadeGame):
-    """Registered `ArcadeGame` entry for PyKuai: Hex 3D."""
+    """Registered `ArcadeGame` entry for Hex 3D."""
 
     code = "hex"
-    title = "PyKuai: Hex 3D"
+    title = "Hex 3D"
     tagline = "Multicolored 3D Hex & Spotted Snake"
     order = 10
     help_text = HEX3D_HELP
@@ -955,7 +1308,7 @@ class PyKuaiHex3DGame(ArcadeGame):
         from pykuai.core.tui import is_interactive_tty
 
         if not is_interactive_tty():
-            print_error("PyKuai: Hex 3D requires an interactive terminal (TTY).")
+            print_error("Hex 3D requires an interactive terminal (TTY).")
             return 1
 
         result = _build_hex3d_app().run(mouse=True)
