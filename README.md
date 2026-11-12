@@ -1,6 +1,6 @@
 English | [简体中文](https://github.com/GallantTarry/pykuai/blob/main/README.zh-CN.md)
 
-# 🐍 PyKuai (v1.2.7) — Open-Source CS & Developer Script Toolbox
+# 🐍 PyKuai (v1.2.7) — Open-Source CS & Developer Script Toolbox(may be console)
 
 > **An open-source, modular CLI & TUI script toolbox built for Computer Science workflows, developer utilities, and community sharing.**  
 > *"The Lord is my shepherd."* — Author: **TuKuai** ([GallantTarry](https://github.com/GallantTarry))
