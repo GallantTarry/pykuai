@@ -38,8 +38,8 @@ _TARGET_CHANNELS = 2
 _CHUNK_FRAMES = 441  # 10 ms at 44.1 kHz
 _CHUNK_SAMPLES = _CHUNK_FRAMES * _TARGET_CHANNELS
 _CHUNK_BYTES = _CHUNK_SAMPLES * 2
-_RING_BUFFERS = 4
-_COLD_LEAD_IN_SEC = 0.12
+_RING_BUFFERS = 6
+_COLD_LEAD_IN_SEC = 0.14
 
 
 def _load_wav_pcm(wav_path: Path) -> Optional[array]:
@@ -99,11 +99,228 @@ def _load_wav_pcm(wav_path: Path) -> Optional[array]:
     return stereo
 
 
-def _get_cached_pcm(name: str, wav_path: Path) -> Optional[array]:
+def _finalize_stereo_pcm(
+    buf_l: list[float],
+    buf_r: list[float],
+    rate: int,
+    peak_limit: float = 20500.0,
+) -> array:
+    """Apply DC-removal, raised-cosine boundary fades, and soft limiting so zero clicks/pops occur."""
+    import math
+
+    n = min(len(buf_l), len(buf_r))
+    if n <= 0:
+        return array("h")
+
+    # 1. Remove any tiny DC offset so endpoints sit cleanly at zero crossing
+    mean_l = sum(buf_l) / n
+    mean_r = sum(buf_r) / n
+
+    fade_in = min(n // 4, max(1, int(rate * 0.008)))
+    fade_out = min(n // 3, max(1, int(rate * 0.020)))
+
+    # Compute raw peak for clean headroom normalization + soft tanh limiter
+    max_abs = 1e-6
+    for i in range(n):
+        vl = abs(buf_l[i] - mean_l)
+        vr = abs(buf_r[i] - mean_r)
+        if vl > max_abs:
+            max_abs = vl
+        if vr > max_abs:
+            max_abs = vr
+
+    gain = 1.0 / max(1.0, max_abs)
+    stereo = array("h", [0]) * (n * 2)
+    for i in range(n):
+        env = 1.0
+        if i < fade_in:
+            env *= 0.5 * (1.0 - math.cos(math.pi * i / fade_in))
+        if i >= n - fade_out:
+            rem = n - 1 - i
+            env *= 0.5 * (1.0 - math.cos(math.pi * rem / fade_out))
+
+        xl = (buf_l[i] - mean_l) * gain * env
+        xr = (buf_r[i] - mean_r) * gain * env
+        # Soft-knee tanh limiting prevents harsh digital clipping pops
+        sl = int(math.tanh(xl * 1.15) / math.tanh(1.15) * peak_limit)
+        sr = int(math.tanh(xr * 1.15) / math.tanh(1.15) * peak_limit)
+        stereo[i * 2] = max(-32000, min(32000, sl))
+        stereo[i * 2 + 1] = max(-32000, min(32000, sr))
+    return stereo
+
+
+def _synth_procedural_pcm(name: str) -> Optional[array]:
+    """Synthesize smooth, click-free 44.1 kHz 16-bit stereo PCM for cutscene & XP SFX."""
+    import math
+    import random
+
+    rate = _TARGET_RATE
+    rng = random.Random(42)
+
+    if name == "door_close":
+        dur = 0.70
+        n_frames = int(rate * dur)
+        buf_l = [0.0] * n_frames
+        buf_r = [0.0] * n_frames
+        phase = 0.0
+        lp = 0.0
+        for i in range(n_frames):
+            t = i / rate
+            val = 0.0
+            if t < 0.23:
+                env = math.sin((t / 0.23) * math.pi) ** 1.4 * 0.18
+                freq = 260.0 - 85.0 * (t / 0.23) + 14.0 * math.sin(t * 50.0)
+                phase += 2.0 * math.pi * freq / rate
+                val = (math.sin(phase) + 0.30 * math.sin(phase * 2.05)) * env
+            elif 0.25 <= t < 0.30:
+                dt = t - 0.25
+                att = min(1.0, dt / 0.005)
+                env = att * math.exp(-dt * 85.0) * 0.45
+                latch_raw = math.sin(2.0 * math.pi * 1450.0 * dt) * 0.70 + rng.uniform(-0.22, 0.22)
+                lp = lp * 0.72 + latch_raw * 0.28
+                val = lp * env
+            elif t >= 0.31:
+                dt = t - 0.31
+                # Smooth 6ms cosine attack ramp avoids instantaneous step pop!
+                att = 0.5 * (1.0 - math.cos(math.pi * min(1.0, dt / 0.006)))
+                env = att * math.exp(-dt * 14.0) * 0.88
+                freq = 46.0 + 88.0 * math.exp(-dt * 26.0)
+                phase += 2.0 * math.pi * freq / rate
+                sub = math.sin(phase) + 0.38 * math.sin(phase * 1.5)
+                noise = rng.uniform(-0.28, 0.28) * math.exp(-dt * 42.0)
+                lp = lp * 0.84 + (sub + noise) * 0.16
+                val = lp * env
+            buf_l[i] = val
+            buf_r[i] = val
+        return _finalize_stereo_pcm(buf_l, buf_r, rate, peak_limit=20000.0)
+
+    if name == "footsteps":
+        dur = 0.94
+        n_frames = int(rate * dur)
+        buf_l = [0.0] * n_frames
+        buf_r = [0.0] * n_frames
+        step_times = (0.03, 0.21, 0.38, 0.54, 0.70)
+        for st_idx, st_t in enumerate(step_times):
+            start_i = int(st_t * rate)
+            step_len = int(0.11 * rate)
+            pan_l = 0.85 if st_idx % 2 == 0 else 0.55
+            pan_r = 0.55 if st_idx % 2 == 0 else 0.85
+            pitch_mul = 1.0 + (st_idx % 2) * 0.12
+            lp = 0.0
+            for k in range(step_len):
+                idx = start_i + k
+                if idx >= n_frames:
+                    break
+                dt = k / rate
+                att = min(1.0, dt / 0.006)
+                rel = min(1.0, (step_len - 1 - k) / (rate * 0.015))
+                env = att * rel * math.exp(-dt * 42.0) * 0.48
+                freq = (66.0 + 96.0 * math.exp(-dt * 52.0)) * pitch_mul
+                raw = math.sin(2.0 * math.pi * freq * dt) + rng.uniform(-0.2, 0.2) * math.exp(-dt * 65.0)
+                lp = lp * 0.72 + raw * 0.28
+                buf_l[idx] += lp * env * pan_l
+                buf_r[idx] += lp * env * pan_r
+        return _finalize_stereo_pcm(buf_l, buf_r, rate, peak_limit=17500.0)
+
+    if name == "pc_boot":
+        # Clean mechanical switch click -> CRT degauss coil hum -> warm beveled BIOS POST beep (zero square step pops!)
+        dur = 0.76
+        n_frames = int(rate * dur)
+        buf_l = [0.0] * n_frames
+        buf_r = [0.0] * n_frames
+        for i in range(n_frames):
+            t = i / rate
+            val = 0.0
+            if 0.005 <= t < 0.065:
+                dt = t - 0.005
+                att = 0.5 * (1.0 - math.cos(math.pi * min(1.0, dt / 0.004)))
+                env = att * math.exp(-dt * 72.0) * 0.55
+                val += (math.sin(2.0 * math.pi * 920.0 * dt) * 0.75 + math.sin(2.0 * math.pi * 1840.0 * dt) * 0.25) * env
+            if 0.08 <= t < 0.42:
+                dt = t - 0.08
+                env = math.sin((dt / 0.34) * math.pi) ** 1.2 * 0.34
+                val += (
+                    math.sin(2.0 * math.pi * 100.0 * dt) * 0.62
+                    + math.sin(2.0 * math.pi * 200.0 * dt) * 0.28
+                    + math.sin(2.0 * math.pi * 300.0 * dt) * 0.10
+                ) * env
+            if 0.44 <= t < 0.68:
+                # Warm band-limited BIOS POST tone (8ms fade-in + 25ms fade-out = ZERO pop!)
+                dt = t - 0.44
+                att = 0.5 * (1.0 - math.cos(math.pi * min(1.0, dt / 0.008)))
+                rem = 0.68 - t
+                rel = 0.5 * (1.0 - math.cos(math.pi * min(1.0, rem / 0.025)))
+                env = att * rel * 0.38
+                w = 2.0 * math.pi * 880.0 * dt
+                tone = math.sin(w) + 0.22 * math.sin(3.0 * w) + 0.08 * math.sin(5.0 * w)
+                val += tone * env
+            buf_l[i] = val
+            buf_r[i] = val
+        return _finalize_stereo_pcm(buf_l, buf_r, rate, peak_limit=18500.0)
+
+    if name == "xp_startup":
+        # Velvety E-flat major Windows XP chime (smooth cosine envelopes, zero clipping/crackle!)
+        dur = 2.15
+        n_frames = int(rate * dur)
+        buf_l = [0.0] * n_frames
+        buf_r = [0.0] * n_frames
+        notes = (
+            (0.02, 0.80, (311.13, 466.16, 783.99), -0.14),
+            (0.38, 0.80, (207.65, 311.13, 523.25, 698.46), 0.14),
+            (0.78, 0.72, (233.08, 349.23, 587.33), -0.10),
+            (1.12, 0.98, (155.56, 311.13, 392.00, 466.16, 622.25), 0.0),
+        )
+        for st_t, n_dur, freqs, pan in notes:
+            i0 = int(st_t * rate)
+            n_len = int(n_dur * rate)
+            gl = 0.85 - pan * 0.18
+            gr = 0.85 + pan * 0.18
+            norm_k = 0.34 / max(1.0, len(freqs) ** 0.55)
+            for k in range(n_len):
+                idx = i0 + k
+                if idx >= n_frames:
+                    break
+                dt = k / rate
+                att = 0.5 * (1.0 - math.cos(math.pi * min(1.0, dt / 0.032)))
+                rel = 0.5 * (1.0 - math.cos(math.pi * min(1.0, (n_len - 1 - k) / (rate * 0.045))))
+                decay = math.exp(-dt * 3.0)
+                env = att * rel * decay * norm_k
+                sig = 0.0
+                for f in freqs:
+                    w = 2.0 * math.pi * f * dt
+                    sig += math.sin(w) + 0.24 * math.sin(w * 2.0) * math.exp(-dt * 5.0)
+                sample = sig * env
+                buf_l[idx] += sample * gl
+                buf_r[idx] += sample * gr
+        return _finalize_stereo_pcm(buf_l, buf_r, rate, peak_limit=19500.0)
+
+    return None
+
+
+def _get_cached_pcm(name: str, wav_path: Optional[Path] = None) -> Optional[array]:
     with _PCM_LOCK:
-        if name not in _PCM_CACHE:
-            _PCM_CACHE[name] = _load_wav_pcm(wav_path)
+        if name in _PCM_CACHE:
+            return _PCM_CACHE[name]
+    data = _load_wav_pcm(wav_path) if (wav_path is not None and wav_path.is_file()) else _synth_procedural_pcm(name)
+    with _PCM_LOCK:
+        _PCM_CACHE.setdefault(name, data)
         return _PCM_CACHE[name]
+
+
+def warmup_arcade_sfx() -> None:
+    """Asynchronously pre-synthesize cutscene & XP startup SFX off the UI thread."""
+    if sys.platform != "win32" or not is_sfx_enabled():
+        return
+
+    def _prewarm() -> None:
+        for sfx_name in ("door_close", "footsteps", "pc_boot", "xp_startup"):
+            try:
+                _get_cached_pcm(sfx_name, None)
+            except Exception:
+                pass
+
+    _MIXER.ensure_started()
+    threading.Thread(target=_prewarm, name="pykuai-arcade-prewarm", daemon=True).start()
 
 
 if sys.platform == "win32":
@@ -513,8 +730,15 @@ atexit.register(shutdown_sfx)
 
 
 def play_sfx(name: str) -> None:
-    """Play a named retro sound effect ('snake', 'type', 'key', 'enter', 'click', or 'paste') cleanly."""
+    """Play a named retro sound effect ('snake', 'type', 'key', 'enter', 'click', 'paste', 'door_close', 'footsteps', 'pc_boot') cleanly."""
     if not is_sfx_enabled():
+        return
+
+    if name in ("door_close", "footsteps", "pc_boot", "xp_startup"):
+        if sys.platform == "win32":
+            pcm = _get_cached_pcm(name, None)
+            if pcm is not None:
+                _MIXER.enqueue(pcm)
         return
 
     filename = _SFX_FILES.get(name)

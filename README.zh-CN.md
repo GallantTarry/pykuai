@@ -1,6 +1,6 @@
 [English](https://github.com/GallantTarry/pykuai/blob/main/README.md) | 简体中文
 
-# 🐍 PyKuai (v1.2.7) — 面向计算机专业的开源脚本工具箱
+# 🐍 PyKuai (v1.2.8) — 面向计算机专业的开源脚本工具箱
 
 > **开源、模块化的 Python CLI / TUI 脚本工具箱——让实用开发者脚本开箱即用、共享互通**  
 > *"The Lord is my shepherd."* — Author: **TuKuai** ([GallantTarry](https://github.com/GallantTarry))
@@ -13,7 +13,7 @@
 
 * **零配置微内核架构**：在 `pykuai/engines/` 中放入任意符合三位纯小写字母命名规范（`^[a-z]{3}$`）并继承 [`BaseEngine`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/base.py) 的 `.py` 模块，PyKuai 即可零样板代码自动扫描识别，并自动接入工具托盘（`tt`）、CLI 子命令路由与依赖检测（`pp`）。
 * **双层指令人体工学**：
-  * **两位叠字全局指令**（`tt`、`pp`、`vv`、`cc`、`hh`、`gg`）：形成极快的肌肉记忆终端导航。
+  * **两位叠字全局指令**（`tt`、`pp`、`xp`、`cc`）配合 `help` / `gg`：形成极快的肌肉记忆终端导航。
   * **三位字母工具引擎**（`ifc`、`ytd` 等）：为每款工具提供清晰、互不冲突的独立命名空间。
 * **交互与静默双模式并行 + 内置使用手册**：所有工具既可通过鼠标可点击的 **Rich / Textual** 赛博暗黑交互面板运行（按 `?` 或 `F1`，或点击右上角 `?` 即可弹出完整的英文功能详解弹窗），也可直接在 Shell 与自动化脚本中传参直调。
 * **赛博触感与界面英语化**：自带 ASCII Banner、可选的高 DPI 桌面像素贪吃蛇开场动画（`--fast` 跳过）、Windows Terminal 标题与图标退出还原、图片拖入自动识别、以及可持久化开关的复古 CC0 街机音效（保存至 `~/.pykuai/settings.json`）；运行时界面与指令保持简洁英文，便于对接上游生态并面向全球社区分享。
@@ -33,7 +33,7 @@ pykuai/
 ├── .gitignore                  # Git 忽略规则（缓存、构建产物、大体积二进制与临时输出）
 ├── .backup_engines/            # 早期重构前保留的 10 个历史参考脚本（运行时不会加载）
 └── pykuai/                     # 核心 Python 包目录
-    ├── __init__.py             # 版本号（1.2.7）与作者元信息
+    ├── __init__.py             # 版本号（1.2.8）与作者元信息
     ├── __main__.py             # python -m pykuai 模块化启动入口
     ├── cli.py                  # 主控制台调度器（REPL 交互循环与 CLI 直达分支）
     ├── core/                   # 微内核基础设施层
@@ -72,7 +72,7 @@ pykuai/
 ### 各板块详细职责
 
 1. **根目录配置、发布流水线与历史归档**
-   * **[pyproject.toml](https://github.com/GallantTarry/pykuai/blob/main/pyproject.toml)**：定义项目名称、版本号（`1.2.7`）、Python 版本要求（`>=3.9`）、核心依赖（`rich`、`textual`、`openpyxl`、`Pillow`、`pypdf`）、可选分组（`office` / `media` / `cv` / `archive` / `ui` / `all`）、打包静态资源（`tools/*`、`assets/*`、`assets/sfx/*`）及全局命令行入口 `pykuai`。
+   * **[pyproject.toml](https://github.com/GallantTarry/pykuai/blob/main/pyproject.toml)**：定义项目名称、版本号（`1.2.8`）、Python 版本要求（`>=3.9`）、核心依赖（`rich`、`textual`、`openpyxl`、`Pillow`、`pypdf`）、可选分组（`office` / `media` / `cv` / `archive` / `ui` / `all`）、打包静态资源（`tools/*`、`assets/*`、`assets/sfx/*`）及全局命令行入口 `pykuai`。
    * **[.github/workflows/publish.yml](https://github.com/GallantTarry/pykuai/blob/main/.github/workflows/publish.yml)**：基于 GitHub OIDC 的无密钥 PyPI Trusted Publishing 自动构建与发布流水线，推送 `v*` / `pykuaiv*` 标签或手动触发 `workflow_dispatch` 即可发布。
    * **[.backup_engines/](https://github.com/GallantTarry/pykuai/tree/main/.backup_engines)**：存放重构前留存的 10 个独立参考脚本（`archive.py`、`excel_merge.py`、`excel_split.py`、`img_compress.py`、`media_fetch.py`、`office_fixed.py`、`pdf_split.py`、`scanner.py`、`video_compress.py`、`web_sniffer.py`），仅作归档参考，不会被 `registry.py` 自动加载。
 
@@ -118,16 +118,14 @@ pykuai
 pykuai --fast
 ```
 
-控制台内置 **6 个双字母全局指令**（在任意可视化 Studio 页面按 `?` / `F1` 可随时查看完整功能说明弹窗）：
+控制台内置核心指令（输入 `help` 查看指令表、`gg` 退出，横幅右侧附带可点击切换的全局 `🔊 SFX ON / 🔇 SFX OFF` 音效开关）：
 
 | 指令 | 含义 | 作用说明 |
 | :--- | :--- | :--- |
-| `tt` | **Tool Tray** | 打开可视化工具托盘（右下角可一键切换全局音效），或运行 `tt <tool> [args]` |
+| `tt` | **Tool Tray** | 打开可视化工具托盘，或运行 `tt <tool> [args]` |
 | `pp` | **Pull Packages** | 检查并可视化安装/升级插件依赖（`pp --check` / `pp -y` / `pp -U`） |
-| `vv` | **View Version** | 显示当前版本（`v1.2.7`）、作者签名与上游开源音效致谢 |
-| `cc` | **Clear Console** | 清屏并重绘 Cyber-Dark 欢迎横幅 |
-| `hh` | **Help Hub** | 输出全局指令速查表 |
-| `gg` | **Good Game** | 安全退出工作台并恢复原始终端标题与图标 |
+| `xp` | **XP Playground** | 启动 3D 过场动画与虚拟 Windows XP CRT（内置 `HEX 3D`） |
+| `cc` | **Clear Console** | 清屏并重绘 Cyber-Dark 欢迎横幅与全局状态栏 |
 
 > 💡 **效率技巧**：在控制台提示符处直接拖入或粘贴图片文件路径，会自动唤醒 `ifc` 并预填好该图片路径。
 
@@ -156,7 +154,8 @@ pykuai pp -y
 pykuai pp -y --all -U
 
 # 查看帮助与版本
-pykuai hh
+pykuai help
+pykuai xp
 pykuai --version
 ```
 
@@ -225,6 +224,14 @@ class MyToolEngine(BaseEngine):
 ```
 
 保存后无需修改任何核心文件，重启 `pykuai` 即可在 `tt` 中看到 `pdf`，同时 `pp` 会自动读取 `requires` 与导入模块进行依赖管理。
+
+---
+
+## ✨ v1.2.8 版本主要更新
+
+* **XP Playground（`xp`）**：将街机入口重构为 `xp`，带来 3D 卧室开机过场与极简 Windows XP Bliss 桌面体验，内置 `HEX 3D` 入口与精简版 `START` -> `OFF` 关机菜单。
+* **主页横幅与可点击全局 `SFX` 开关**：将版本与作者信息移至 `PYKUAI` 横幅右侧，新增可鼠标点击切换的 `SFX ON` / `SFX OFF` 全局音效开关，并将 REPL 常用指令精简为 `xp`、`help` 与 `gg`。
+* **界面与交互修复**：去除 `xp` 桌面顶部/底部多余状态栏及任务栏杂项，并修复点击画布时出现蓝色选中横线的问题。
 
 ---
 

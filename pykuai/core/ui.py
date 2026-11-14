@@ -2,10 +2,18 @@
 """
 PyKuai Terminal UI & Cyber-Dark Aesthetics
 """
+import ctypes
+import io
 import os
 import sys
 import time
 import shutil
+from typing import Callable, Optional
+
+from rich.cells import cell_len
+
+from pykuai import __version__
+from pykuai.core.audio import is_sfx_enabled, toggle_sfx
 
 # Force UTF-8 terminal output to prevent Windows CP1252/GBK encoding errors
 if hasattr(sys.stdout, "reconfigure"):
@@ -147,13 +155,27 @@ def apply_terminal_identity(title: str = "pykuai"):
 def restore_terminal_identity(original_title: str = "Windows PowerShell"):
     """
     Restore terminal state on exit or interruption:
-    1. Remove temporary icon override from Windows Terminal settings.json
-    2. Restore terminal window title
+    1. Disable VT mouse reporting if active
+    2. Remove temporary icon override from Windows Terminal settings.json
+    3. Restore terminal window title
     """
     global _wt_settings_path
     import ctypes
 
-    # 1. Restore terminal title
+    # 1. Restore Win32 console mode (if raw input active) and disable VT mouse reporting
+    try:
+        if _console_restore_hook is not None:
+            _console_restore_hook()
+    except Exception:
+        pass
+    try:
+        if sys.stdout and sys.stdout.isatty():
+            sys.stdout.write("\x1b[?1000l\x1b[?1006l")
+            sys.stdout.flush()
+    except Exception:
+        pass
+
+    # 2. Restore terminal title
     try:
         sys.stdout.write(f"\033]0;{original_title}\007")
         sys.stdout.flush()
@@ -191,6 +213,11 @@ def restore_terminal_identity(original_title: str = "Windows PowerShell"):
 
 def clear_screen():
     """Clear terminal screen."""
+    global _BANNER_SFX_BUF_Y, _BANNER_SFX_COL0, _BANNER_SFX_COL1, _BANNER_VP_OFFSET
+    _BANNER_SFX_BUF_Y = None
+    _BANNER_SFX_COL0 = None
+    _BANNER_SFX_COL1 = None
+    _BANNER_VP_OFFSET = 0
     os.system("cls" if os.name == "nt" else "clear")
 
 
@@ -206,10 +233,254 @@ def get_custom_logger():
     return _custom_logger
 
 
+_BANNER_ROWS: tuple[tuple[str, str], ...] = (
+    ("██████╗ ██╗   ██╗██╗  ██╗██╗   ██╗ █████╗ ██╗", "bold #00FF00"),
+    ("██╔══██╗╚██╗ ██╔╝██║ ██╔╝██║   ██║██╔══██╗██║", "bold #00FF00"),
+    ("██████╔╝ ╚████╔╝ █████═╝ ██║   ██║███████║██║", "bold #10b981"),
+    ("██╔═══╝   ╚██╔╝  ██╔═██╗ ██║   ██║██╔══██║██║", "bold #10b981"),
+    ("██║        ██║   ██║  ██╗╚██████╔╝██║  ██║██║", "bold #047857"),
+    ("╚═╝        ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝", "bold #047857"),
+)
+
+_BANNER_SFX_BUF_Y: Optional[int] = None
+_BANNER_SFX_COL0: Optional[int] = None
+_BANNER_SFX_COL1: Optional[int] = None
+_BANNER_VP_OFFSET: int = 0
+_console_restore_hook: Optional[Callable[[], None]] = None
+
+
+def register_console_restore_hook(hook: Optional[Callable[[], None]]) -> None:
+    """Register or clear an idempotent raw-console mode restore callback."""
+    global _console_restore_hook
+    _console_restore_hook = hook
+
+
+def calibrate_banner_viewport_offset(delta: int) -> None:
+    """Store DSR-measured viewport row offset for accurate VT mouse hit-testing."""
+    global _BANNER_VP_OFFSET
+    _BANNER_VP_OFFSET = delta
+
+
+class _Win32Coord(ctypes.Structure):
+    _fields_ = [("X", ctypes.c_short), ("Y", ctypes.c_short)]
+
+
+class _Win32SmallRect(ctypes.Structure):
+    _fields_ = [
+        ("Left", ctypes.c_short),
+        ("Top", ctypes.c_short),
+        ("Right", ctypes.c_short),
+        ("Bottom", ctypes.c_short),
+    ]
+
+
+class _Win32CSBI(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", _Win32Coord),
+        ("dwCursorPosition", _Win32Coord),
+        ("wAttributes", ctypes.c_ushort),
+        ("srWindow", _Win32SmallRect),
+        ("dwMaximumWindowSize", _Win32Coord),
+    ]
+
+
+def _get_win32_stdout_handle():
+    """Return Win32 STD_OUTPUT_HANDLE when running under a Windows console."""
+    if os.name != "nt":
+        return None
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GetStdHandle.argtypes = [ctypes.c_uint32]
+        kernel32.GetStdHandle.restype = ctypes.c_void_p
+        h_out = kernel32.GetStdHandle(ctypes.c_uint32(-11).value)
+        if not h_out or h_out == ctypes.c_void_p(-1).value:
+            return None
+        return kernel32, h_out
+    except Exception:
+        return None
+
+
+def get_win32_csbi() -> Optional[_Win32CSBI]:
+    """Query Win32 console cursor & visible viewport bounds without touching stdin."""
+    res = _get_win32_stdout_handle()
+    if res is None:
+        return None
+    kernel32, h_out = res
+    try:
+        kernel32.GetConsoleScreenBufferInfo.argtypes = [ctypes.c_void_p, ctypes.POINTER(_Win32CSBI)]
+        kernel32.GetConsoleScreenBufferInfo.restype = ctypes.c_int
+        csbi = _Win32CSBI()
+        if not kernel32.GetConsoleScreenBufferInfo(h_out, ctypes.byref(csbi)):
+            return None
+        return csbi
+    except Exception:
+        return None
+
+
+_get_win32_csbi = get_win32_csbi
+
+
+def _read_console_chars(kernel32, h_out, x: int, y: int, count: int) -> Optional[str]:
+    """Read `count` wide characters from console screen buffer coordinates `(x, y)`."""
+    try:
+        kernel32.ReadConsoleOutputCharacterW.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_wchar_p,
+            ctypes.c_uint32,
+            _Win32Coord,
+            ctypes.POINTER(ctypes.c_uint32),
+        ]
+        kernel32.ReadConsoleOutputCharacterW.restype = ctypes.c_int
+        buf = ctypes.create_unicode_buffer(count + 1)
+        read = ctypes.c_uint32(0)
+        if not kernel32.ReadConsoleOutputCharacterW(h_out, buf, count, _Win32Coord(x, y), ctypes.byref(read)):
+            return None
+        return buf.value[: int(read.value)]
+    except Exception:
+        return None
+
+
+def _scan_live_banner_sfx_y(csbi: _Win32CSBI, col0: int) -> tuple[bool, Optional[int]]:
+    """Scan visible console rows bottom-up for the banner SFX pill; returns `(read_ok, y)`."""
+    res = _get_win32_stdout_handle()
+    if res is None:
+        return False, None
+    kernel32, h_out = res
+    top = int(csbi.srWindow.Top)
+    bottom = min(int(csbi.srWindow.Bottom), int(csbi.dwCursorPosition.Y))
+    if bottom < top:
+        return False, None
+
+    x_start = max(0, col0 - 1)
+    read_ok = False
+    for y in range(bottom, top - 1, -1):
+        pill_text = _read_console_chars(kernel32, h_out, x_start, y, 26)
+        if pill_text is None:
+            continue
+        read_ok = True
+        if "SFX ON   click" in pill_text or "SFX OFF  click" in pill_text:
+            if col0 > 1:
+                prefix = _read_console_chars(kernel32, h_out, 0, y, 3)
+                if prefix != "╚═╝":
+                    continue
+            return True, y
+    return read_ok, None
+
+
+def _build_sfx_pill_text(enabled: bool) -> Text:
+    """Build fixed-width clickable global SFX toggle badge + subtle affordance."""
+    badge = " 🔊 SFX ON  " if enabled else " 🔇 SFX OFF "
+    style = "bold #00FF00 on #0b2e1c" if enabled else "bold #FF5252 on #2b1414"
+    return Text.assemble((badge, style), (" click", "#666666"))
+
+
+def _render_sfx_pill_ansi(enabled: bool) -> str:
+    """Render the SFX pill to truecolor ANSI using Rich so it matches banner colors verbatim."""
+    buf = io.StringIO()
+    tmp = Console(file=buf, force_terminal=True, color_system="truecolor", legacy_windows=False, width=40)
+    tmp.print(_build_sfx_pill_text(enabled), end="")
+    return buf.getvalue()
+
+
+def _build_banner_info_rows(enabled: bool) -> list[Text]:
+    """Build the 6 right-column metadata & global settings rows displayed beside PYKUAI."""
+    return [
+        Text.assemble(("pykuai", "bold #00FF00"), (f"  v{__version__}", "bold #FF9800")),
+        Text.assemble(("Author: ", "#666666"), ("TuKuai", "bold #FF9800"), (" | ", "#666666"), ("GallantTarry", "bold #10b981")),
+        Text('"The Lord is my shepherd."', style="italic #FF9800"),
+        Text("Audio:  Kenney & CC0 SFX", style="#666666"),
+        Text(""),
+        _build_sfx_pill_text(enabled),
+    ]
+
+
+def get_sfx_button_viewport_box() -> Optional[tuple[int, int, int]]:
+    """Return 1-based `(vp_row, col0, col1)` when the banner SFX toggle is currently on screen."""
+    global _BANNER_SFX_BUF_Y
+    if _BANNER_SFX_BUF_Y is None or _BANNER_SFX_COL0 is None or _BANNER_SFX_COL1 is None:
+        return None
+    csbi = get_win32_csbi()
+    if csbi is None:
+        return None
+
+    live_y = _BANNER_SFX_BUF_Y
+    read_ok, scanned_y = _scan_live_banner_sfx_y(csbi, _BANNER_SFX_COL0)
+    if scanned_y is not None:
+        live_y = scanned_y
+        _BANNER_SFX_BUF_Y = scanned_y
+    elif read_ok:
+        return None
+
+    vis_h = (csbi.srWindow.Bottom - csbi.srWindow.Top) + 1
+    vp_row = (live_y - csbi.srWindow.Top) + 1 + _BANNER_VP_OFFSET
+    if 1 <= vp_row <= vis_h:
+        return vp_row, _BANNER_SFX_COL0, _BANNER_SFX_COL1
+    return None
+
+
+def toggle_banner_sfx() -> bool:
+    """Toggle global retro SFX state and repaint the banner SFX button in-place."""
+    new_state = toggle_sfx()
+    box_rect = get_sfx_button_viewport_box()
+    if box_rect is not None and sys.stdout and sys.stdout.isatty():
+        vp_row, col0, _ = box_rect
+        pill_ansi = _render_sfx_pill_ansi(new_state)
+        try:
+            sys.stdout.write(f"\x1b7\x1b[{vp_row};{col0}H{pill_ansi}\x1b8")
+            sys.stdout.flush()
+        except Exception:
+            pass
+    return new_state
+
+
+def _capture_banner_sfx_row(col_start: int, pill_len: int) -> None:
+    """Flush stdout and capture the exact screen-buffer Y coordinate of row 6."""
+    global _BANNER_SFX_BUF_Y, _BANNER_SFX_COL0, _BANNER_SFX_COL1
+    for stream in (console.file, sys.stdout):
+        try:
+            stream.flush()
+        except Exception:
+            pass
+    csbi = get_win32_csbi()
+    if csbi is not None:
+        _BANNER_SFX_BUF_Y = csbi.dwCursorPosition.Y
+        _BANNER_SFX_COL0 = col_start
+        _BANNER_SFX_COL1 = col_start + pill_len - 1
+
+
 def print_banner():
-    """Print Cyber-Dark ASCII banner and brand identity."""
+    """Print Cyber-Dark ASCII banner with right-side version metadata & global SFX switch."""
+    global _BANNER_SFX_BUF_Y, _BANNER_SFX_COL0, _BANNER_SFX_COL1, _BANNER_VP_OFFSET
+
+    _BANNER_SFX_BUF_Y = None
+    _BANNER_SFX_COL0 = None
+    _BANNER_SFX_COL1 = None
+    _BANNER_VP_OFFSET = 0
+
+    info_rows = _build_banner_info_rows(is_sfx_enabled())
+    pill_len = cell_len(info_rows[-1].plain)
+    term_w = console.size.width
+
     console.print()
-    console.print(get_banner())
+    if term_w >= 78:
+        gap = "   "
+        col_start = cell_len(_BANNER_ROWS[0][0]) + len(gap) + 1
+        for idx, ((art_str, art_style), info_txt) in enumerate(zip(_BANNER_ROWS, info_rows)):
+            row = Text.assemble((art_str, art_style), gap, info_txt)
+            is_last = idx == len(_BANNER_ROWS) - 1
+            console.print(row, soft_wrap=True, end="" if is_last else "\n")
+            if is_last:
+                _capture_banner_sfx_row(col_start, pill_len)
+                console.print()
+    else:
+        for art_str, art_style in _BANNER_ROWS:
+            console.print(Text(art_str, style=art_style))
+        for idx, info_txt in enumerate(info_rows):
+            is_last = idx == len(info_rows) - 1
+            console.print(info_txt, end="" if is_last else "\n")
+            if is_last:
+                _capture_banner_sfx_row(1, pill_len)
+                console.print()
     console.print()
 
 
@@ -222,10 +493,10 @@ def _build_console_greeting() -> tuple[Text, Text]:
     )
     line2 = Text.assemble(
         ("Type ", "#9ca3af"),
-        ("hh", "bold #00FF00"),
-        (" for backup & tools — or ", "#9ca3af"),
+        ("help", "bold #00FF00"),
+        (" for commands — or ", "#9ca3af"),
         ("gg", "bold #FF5252"),
-        (" to quit the game.", "#9ca3af"),
+        (" to quit.", "#9ca3af"),
     )
     return line1, line2
 

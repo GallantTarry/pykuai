@@ -35,7 +35,8 @@ TT_HELP_TEXT = """\
   • [bold #e5e7eb]pykuai tt[/]                Open Tool Tray (or render a status table when output is piped).
   • [bold #e5e7eb]pykuai tt <name> \\[args][/] Jump directly into a tool's Studio or run its CLI mode.
   • [bold #e5e7eb]pykuai pp[/]                Open the Package Manager Studio (install or upgrade tool dependencies).
-  • [bold #e5e7eb]pykuai vv[/] / [bold #e5e7eb]hh[/] / [bold #e5e7eb]gg[/]    Show version & runtime info, command cheat sheet, or exit."""
+  • [bold #e5e7eb]pykuai xp[/]                Launch XP Playground (3D Cutscene & Virtual Windows XP CRT).
+  • [bold #e5e7eb]pykuai help[/] / [bold #e5e7eb]gg[/]         Show command reference table or quit the console."""
 
 
 def _build_tt_app(engines: dict[str, BaseEngine]):
@@ -195,7 +196,7 @@ def run_tool_tray(
 
     if cli_args:
         first = cli_args[0]
-        if first in ("-h", "--help", "hh"):
+        if first in ("-h", "--help", "help"):
             print_tool_tray_table(engines, console)
             return 0
 
@@ -204,7 +205,7 @@ def run_tool_tray(
             print_error(f"Unknown tool [bold]{first}[/bold] in Tool Tray.")
             console.print(
                 "[dim]Run [bold #00FF00]tt[/bold #00FF00] to view available tools, "
-                "or [bold #00FF00]hh[/bold #00FF00] for global commands.[/dim]"
+                "or [bold #00FF00]help[/bold #00FF00] for global commands.[/dim]"
             )
             return 1
 

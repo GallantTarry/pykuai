@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-PyKuai Arcade Arena — Mini-Game Registry & Plug-In Contract (`aa`).
+PyKuai XP Playground — Mini-Game Registry & Plug-In Contract (`xp`).
 Drop any module in `pykuai/arcade/` defining an `ArcadeGame` subclass to register it automatically.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ _GAMES_CACHE: dict[str, ArcadeGame] = {}
 
 
 class ArcadeGame(ABC):
-    """Base plugin contract for console mini-games inside `aa` (Arcade Arena)."""
+    """Base plugin contract for console mini-games inside `xp` (XP Playground)."""
 
     code: str = ""
     title: str = ""
@@ -48,7 +48,7 @@ def load_all_games(force_reload: bool = False) -> dict[str, ArcadeGame]:
     seen_codes: set[str] = set()
 
     for file_path in sorted(arcade_dir.glob("*.py")):
-        if file_path.name.startswith("__") or file_path.stem == "launcher":
+        if file_path.name.startswith("__") or file_path.stem in {"launcher", "room3d"}:
             continue
 
         module_name = f"pykuai.arcade.{file_path.stem}"
@@ -76,7 +76,7 @@ def load_all_games(force_reload: bool = False) -> dict[str, ArcadeGame]:
                     seen_codes.add(code)
                     discovered.append(inst)
         except Exception:
-            # Isolate broken game drafts so Arcade Arena stays bootable.
+            # Isolate broken game drafts so XP Playground stays bootable.
             continue
 
     discovered.sort(key=lambda g: (getattr(g, "order", 100), g.code))

@@ -211,6 +211,106 @@ def _solve_quad_cell(c0: int, c1: int, c2: int, c3: int) -> tuple[str, int, int]
     return QUAD_CHARS[mask], fg_i, bg_i
 
 
+_STYLE_PAIR_CACHE: dict[tuple[int, int], str] = {}
+_STYLE_SOLID_CACHE: dict[int, str] = {}
+_VOID_STYLE = f"on {VOID_HEX}"
+
+
+def _pack_quadrant_buffer(pbuf: list[int], width: int, height: int) -> Text:
+    """Pack a `width x height` RGB int buffer into `width//2 x height//2` Quadrant characters."""
+    out = Text()
+    rows_out = height // 2
+    cols_out = width // 2
+    append = out.append
+    solid_cache = _STYLE_SOLID_CACHE
+    pair_cache = _STYLE_PAIR_CACHE
+    qchars = QUAD_CHARS
+    solve = _solve_quad_cell
+    void_i = VOID_INT
+    void_st = _VOID_STYLE
+
+    for cy_i in range(rows_out):
+        top_off = (cy_i * 2) * width
+        bot_off = top_off + width
+        run_chars: list[str] = []
+        run_style: Optional[str] = None
+
+        for cx_i in range(cols_out):
+            sx_base = cx_i * 2
+            c0 = pbuf[top_off + sx_base]
+            c1 = pbuf[top_off + sx_base + 1]
+            c2 = pbuf[bot_off + sx_base]
+            c3 = pbuf[bot_off + sx_base + 1]
+
+            if c0 == c1 == c2 == c3:
+                if c0 == void_i:
+                    ch = " "
+                    style = void_st
+                else:
+                    ch = "█"
+                    style = solid_cache.get(c0)
+                    if style is None:
+                        style = f"{_int_to_hex(c0)} on {VOID_HEX}"
+                        if len(solid_cache) < 8192:
+                            solid_cache[c0] = style
+            else:
+                fg_i = c0
+                bg_i = -1
+                two_color = True
+                if c1 != fg_i:
+                    bg_i = c1
+                if c2 != fg_i:
+                    if bg_i == -1:
+                        bg_i = c2
+                    elif c2 != bg_i:
+                        two_color = False
+                if two_color and c3 != fg_i:
+                    if bg_i == -1:
+                        bg_i = c3
+                    elif c3 != bg_i:
+                        two_color = False
+
+                if two_color and bg_i != -1:
+                    mask = (8 if c0 == fg_i else 0) | (4 if c1 == fg_i else 0) | (2 if c2 == fg_i else 0) | (1 if c3 == fg_i else 0)
+                    ch = qchars[mask]
+                    key = (fg_i, bg_i)
+                    style = pair_cache.get(key)
+                    if style is None:
+                        style = f"{_int_to_hex(fg_i)} on {_int_to_hex(bg_i)}"
+                        if len(pair_cache) < 16384:
+                            pair_cache[key] = style
+                else:
+                    ch, fg_s, bg_s = solve(c0, c1, c2, c3)
+                    if ch == " ":
+                        style = void_st
+                    elif ch == "█":
+                        style = solid_cache.get(fg_s)
+                        if style is None:
+                            style = f"{_int_to_hex(fg_s)} on {VOID_HEX}"
+                            if len(solid_cache) < 8192:
+                                solid_cache[fg_s] = style
+                    else:
+                        key = (fg_s, bg_s)
+                        style = pair_cache.get(key)
+                        if style is None:
+                            style = f"{_int_to_hex(fg_s)} on {_int_to_hex(bg_s)}"
+                            if len(pair_cache) < 16384:
+                                pair_cache[key] = style
+
+            if style != run_style:
+                if run_chars:
+                    append("".join(run_chars), style=run_style or "")
+                    run_chars.clear()
+                run_style = style
+            run_chars.append(ch)
+        if run_chars:
+            append("".join(run_chars), style=run_style or "")
+            run_chars.clear()
+        if cy_i + 1 < rows_out:
+            append("\n")
+    return out
+
+
 def _mix_rgb(a: RGB, b: RGB, t: float) -> RGB:
     if t <= 0.0:
         return a
@@ -452,6 +552,59 @@ class _Hex3DEngine:
         self.left_fault_ticks = 14
         self.status_line = "LEFT KEY BROKEN! Tap D / -> clockwise (4x = Left)."
         return "fault_left"
+
+    def serialize_state(self) -> bytes:
+        """Serialize current 3D snake run into a compact JSON save-state payload."""
+        import json
+
+        payload = {
+            "version": 1,
+            "stage_idx": self.stage_idx,
+            "score": self.score,
+            "total_orbs": self.total_orbs,
+            "stage_orbs": self.stage_orbs,
+            "dir_idx": self.dir_idx,
+            "snake": [list(c) for c in self.snake],
+            "prev_snake": [list(c) for c in self.prev_snake],
+            "orb": list(self.orb),
+            "phase": "paused" if self.phase == "playing" else self.phase,
+            "cam_yaw": round(self.cam_yaw, 4),
+        }
+        return json.dumps(payload).encode("utf-8")
+
+    def deserialize_state(self, raw: bytes) -> bool:
+        """Restore a saved 3D snake run from JSON state bytes."""
+        import json
+
+        try:
+            data = json.loads(raw.decode("utf-8"))
+            stage_idx = int(data.get("stage_idx", 0))
+            if not (0 <= stage_idx < len(STAGES)):
+                return False
+            self._load_stage(stage_idx)
+            self.score = int(data.get("score", 0))
+            self.total_orbs = int(data.get("total_orbs", 0))
+            self.stage_orbs = int(data.get("stage_orbs", 0))
+            self.dir_idx = int(data.get("dir_idx", 0)) % 6
+            snake_raw = data.get("snake", [])
+            if snake_raw:
+                self.snake = deque((int(c[0]), int(c[1]), int(c[2])) for c in snake_raw)
+                self.prev_snake = list(self.snake)
+            orb_raw = data.get("orb")
+            if isinstance(orb_raw, list) and len(orb_raw) == 3:
+                cand_orb = (int(orb_raw[0]), int(orb_raw[1]), int(orb_raw[2]))
+                if cand_orb in self.valid_cells:
+                    self.orb = cand_orb
+            hx, hz = _cube_to_world_xz(self.snake[0])
+            self.cam_target_x = hx
+            self.cam_target_y = self.heights.get(self.snake[0], 0.2)
+            self.cam_target_z = hz
+            self.cam_yaw = float(data.get("cam_yaw", self.dir_idx * (math.pi / 3.0)))
+            self.phase = "paused"
+            self.status_line = f"STATE LOADED · Score {self.score} (Space / D to resume)"
+            return True
+        except Exception:
+            return False
 
     def _finish_run(self, won: bool, reason: str) -> str:
         self.phase = "victory" if won else "gameover"
@@ -966,44 +1119,8 @@ class _Hex3DEngine:
                 z_bias=-0.44,
             )
 
-        # 6. Pack 2x2 Quadrant Characters (140x32 sub-pixels -> 70x16 terminal cells)
-        out = Text()
-        rows_out = height // 2
-        cols_out = width // 2
-        for cy_i in range(rows_out):
-            top_off = (cy_i * 2) * width
-            bot_off = top_off + width
-            run_chars: list[str] = []
-            run_style: Optional[str] = None
-
-            def flush_run() -> None:
-                if run_chars:
-                    out.append("".join(run_chars), style=run_style or "")
-                    run_chars.clear()
-
-            for cx_i in range(cols_out):
-                sx_base = cx_i * 2
-                c0 = pbuf[top_off + sx_base]
-                c1 = pbuf[top_off + sx_base + 1]
-                c2 = pbuf[bot_off + sx_base]
-                c3 = pbuf[bot_off + sx_base + 1]
-                ch, fg_i, bg_i = _solve_quad_cell(c0, c1, c2, c3)
-                if ch == " ":
-                    style = f"on {VOID_HEX}"
-                elif ch == "█":
-                    style = f"{_int_to_hex(fg_i)} on {VOID_HEX}"
-                else:
-                    style = f"{_int_to_hex(fg_i)} on {_int_to_hex(bg_i)}"
-
-                if style != run_style:
-                    flush_run()
-                    run_style = style
-                run_chars.append(ch)
-            flush_run()
-            if cy_i + 1 < rows_out:
-                out.append("\n")
-
-        return out
+        # 6. Pack 2x2 Quadrant Characters
+        return _pack_quadrant_buffer(pbuf, width, height)
 
 
 def _build_hex3d_app():

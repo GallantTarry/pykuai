@@ -1,6 +1,6 @@
 English | [简体中文](https://github.com/GallantTarry/pykuai/blob/main/README.zh-CN.md)
 
-# 🐍 PyKuai (v1.2.7) — Open-Source CS & Developer Script Toolbox(may be console)
+# 🐍 PyKuai (v1.2.8) — Open-Source CS & Developer Script Toolbox(may be console)
 
 > **An open-source, modular CLI & TUI script toolbox built for Computer Science workflows, developer utilities, and community sharing.**  
 > *"The Lord is my shepherd."* — Author: **TuKuai** ([GallantTarry](https://github.com/GallantTarry))
@@ -13,7 +13,7 @@ English | [简体中文](https://github.com/GallantTarry/pykuai/blob/main/README
 
 * **Zero-Config Micro-Kernel**: Drop any compliant three-letter lowercase `.py` module (`^[a-z]{3}$`) implementing [`BaseEngine`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/base.py) into `pykuai/engines/`. PyKuai automatically discovers it and wires it into the Tool Tray (`tt`), CLI subcommand router, and dependency scanner (`pp`) with zero boilerplate.
 * **Two-Tier Command Ergonomics**:
-  * **Doubled 2-letter global commands** (`tt`, `pp`, `vv`, `cc`, `hh`, `gg`) deliver instant muscle-memory navigation across the REPL console.
+  * **Doubled 2-letter global commands** (`tt`, `pp`, `xp`, `cc`) plus `help` / `gg` deliver instant muscle-memory navigation across the REPL console.
   * **3-letter tool engines** (`ifc`, `ytd`, ...) keep every utility isolated behind clean, collision-free namespaces.
 * **Dual-Mode Execution & In-App Guides**: Run every engine either interactively through mouse-clickable **Rich / Textual** Cyber-Dark Studios (press `?` or `F1`, or click `?` in the top-right corner, for a full in-app feature guide) or headlessly via direct CLI flags in automation scripts.
 * **Cyber-Dark Tactile Experience**: Features an ASCII banner, an optional high-DPI desktop pixel-snake launch sequence (`--fast` to skip), Windows Terminal title/icon protection, drag-and-drop image routing, and toggleable retro CC0 arcade sound effects persisted in `~/.pykuai/settings.json`.
@@ -33,7 +33,7 @@ pykuai/
 ├── .gitignore                  # Git ignore rules (caches, builds, heavy binaries & temp outputs)
 ├── .backup_engines/            # Historical archive of 10 pre-refactor scripts (not loaded at runtime)
 └── pykuai/                     # Core Python package
-    ├── __init__.py             # Version (1.2.7) & author metadata
+    ├── __init__.py             # Version (1.2.8) & author metadata
     ├── __main__.py             # python -m pykuai module entrypoint
     ├── cli.py                  # Main dispatcher (interactive REPL & direct CLI modes)
     ├── core/                   # Micro-kernel infrastructure
@@ -72,7 +72,7 @@ pykuai/
 ### Module Breakdown
 
 1. **Root Configuration, CI & Archive**
-   * **[pyproject.toml](https://github.com/GallantTarry/pykuai/blob/main/pyproject.toml)**: Defines package metadata (`1.2.7`, Python `>=3.9`), core dependencies (`rich`, `textual`, `openpyxl`, `Pillow`, `pypdf`), optional extras (`office`, `media`, `cv`, `archive`, `ui`, `all`), package data (`tools/*`, `assets/*`, `assets/sfx/*`), and the `pykuai` console entrypoint.
+   * **[pyproject.toml](https://github.com/GallantTarry/pykuai/blob/main/pyproject.toml)**: Defines package metadata (`1.2.8`, Python `>=3.9`), core dependencies (`rich`, `textual`, `openpyxl`, `Pillow`, `pypdf`), optional extras (`office`, `media`, `cv`, `archive`, `ui`, `all`), package data (`tools/*`, `assets/*`, `assets/sfx/*`), and the `pykuai` console entrypoint.
    * **[.github/workflows/publish.yml](https://github.com/GallantTarry/pykuai/blob/main/.github/workflows/publish.yml)**: Passwordless PyPI Trusted Publishing pipeline (OIDC) triggered on `v*` / `pykuaiv*` tags or manual `workflow_dispatch`.
    * **[.backup_engines/](https://github.com/GallantTarry/pykuai/tree/main/.backup_engines)**: Reference archive of 10 pre-refactor standalone scripts (`archive.py`, `excel_merge.py`, `excel_split.py`, `img_compress.py`, `media_fetch.py`, `office_fixed.py`, `pdf_split.py`, `scanner.py`, `video_compress.py`, `web_sniffer.py`). Never loaded by `registry.py`.
 
@@ -118,16 +118,14 @@ pykuai
 pykuai --fast
 ```
 
-Inside the console, use the **6 doubled-letter global commands** (or press `?` / `F1` inside any visual Studio for its built-in guide):
+Inside the console, use the core commands (`help` prints the table, `gg` quits, and the banner's right-side `🔊 SFX ON / 🔇 SFX OFF` pill toggles global audio on click):
 
 | Command | Meaning | Description |
 | :--- | :--- | :--- |
-| `tt` | **Tool Tray** | Open the interactive Tool Tray (with bottom-right SFX toggle), or run `tt <tool> [args]` |
+| `tt` | **Tool Tray** | Open the interactive Tool Tray, or run `tt <tool> [args]` |
 | `pp` | **Pull Packages** | Audit and install/upgrade plugin dependencies (`pp --check` / `pp -y` / `pp -U`) |
-| `vv` | **View Version** | Display version (`v1.2.7`), author signature, and open-source audio credits |
+| `xp` | **XP Playground** | Launch the 3D cutscene & virtual Windows XP CRT playground (`HEX 3D`) |
 | `cc` | **Clear Console** | Clear the screen and redraw the Cyber-Dark banner |
-| `hh` | **Help Hub** | Show the global command quick-reference table |
-| `gg` | **Good Game** | Exit cleanly and restore the original terminal title and icon |
 
 > 💡 **Pro Tip**: Dragging or pasting an image file path straight into the REPL prompt automatically opens `ifc` pre-loaded with that image.
 
@@ -156,7 +154,8 @@ pykuai pp -y
 pykuai pp -y --all -U
 
 # Help & version
-pykuai hh
+pykuai help
+pykuai xp
 pykuai --version
 ```
 
@@ -225,6 +224,14 @@ class MyToolEngine(BaseEngine):
 ```
 
 Restart `pykuai`—no core edits or manual registration needed. `pdf` appears immediately in `tt`, and `pp` automatically tracks its `requires` packages and imports.
+
+---
+
+## ✨ What's New in v1.2.8
+
+* **XP Playground (`xp`)**: Redesigned the arcade experience as `xp`, featuring a 3D bedroom-to-PC intro leading into a minimalist Windows XP Bliss desktop with `HEX 3D` and a focused `START` -> `OFF` shutdown menu.
+* **Home Banner & Clickable Global `SFX` Toggle**: Placed author/version details alongside the `PYKUAI` banner, added a mouse-clickable `SFX ON` / `SFX OFF` sound toggle, and simplified REPL navigation to `xp`, `help`, and `gg`.
+* **Visual & Input Fixes**: Eliminated unwanted blue click-selection stripes in the `xp` desktop view and trimmed extra chrome bars.
 
 ---
 
