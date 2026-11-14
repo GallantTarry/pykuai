@@ -48,6 +48,17 @@ from pykuai.arcade.hex3d import (
     _pack_rgb,
     _scale_rgb,
 )
+from pykuai.arcade.ie6 import (
+    ABOUT_HOME_URL,
+    IE6BrowserSession,
+    PageSnapshot,
+    TerminalGraphicsInfo,
+    get_cached_terminal_sixel_info,
+    load_bookmarks,
+    render_home_pixel_canvas,
+    render_image_to_halfblock,
+    save_bookmarks,
+)
 from pykuai.core.audio import play_sfx, warmup_arcade_sfx
 
 _HEX_SAVE_PATH = Path.home() / ".pykuai" / "hex3d_save.json"
@@ -97,7 +108,10 @@ ROOM3D_HELP_TEXT = """\
   • Press [bold]Space / Enter / Click[/] during the cutscene or boot splash to skip ahead.
 
 [bold #00d2ff]Virtual Windows XP Desktop (`Bliss`)[/]
-  • [bold #00FF00]Double-Click `HEX 3D` Icon[/] (or press [bold]Enter[/]) to launch the 3D game window.
+  • [bold #00FF00]Double-Click `HEX 3D` Icon[/] to launch the 3D game window.
+  • [bold #38BDF8]Double-Click `IE 6` Icon[/] to open Native HD Internet Explorer 6
+    (Windows Terminal `HD·Six` real-time pixel streaming with `HB·Blk` fallback,
+    direct URL/domain jump in Address bar, click/scroll/type, `🔍 1x-4x` zoom, bookmarks, `Txt`).
   • [bold #FACC15]Click the Green `START` Button[/] (bottom-left) to open the XP Start Menu.
   • Every window features a top-right crimson [bold #FF5252]✕[/] close button.
 
@@ -754,6 +768,8 @@ class _WinXPDesktopEngine:
         self._welcome_bg: list[int] = []
         self._bliss_bg_key: tuple[int, int] = (-1, -1)
         self._bliss_bg: list[int] = []
+        self._cached_desk_key: tuple[object, ...] = ()
+        self._cached_desk_frame: Optional[Text] = None
 
     def reset_boot(self) -> None:
         self.boot_t = 0.0
@@ -1008,16 +1024,35 @@ class _WinXPDesktopEngine:
         self,
         width: int,
         height: int,
-        icon_selected: bool = True,
+        selected_idx: int = 0,
         has_save: bool = False,
+        has_bookmarks: bool = False,
     ) -> Text:
         """
         Render the Windows XP `Bliss` Wallpaper Desktop + Luna Taskbar + Green `START` Button
-        + Live System Tray + built-in `HEX 3D` Software Icon.
+        + Live System Tray + built-in `HEX 3D` and `IE 6` Software Icons.
         """
         tb_h = self.TASKBAR_H
         desk_h = max(10, height - tb_h)
         tb_y0 = height - tb_h
+        balloon_on = self.balloon_timer > 0.0 and bool(self.balloon_text)
+        balloon_msg = self.balloon_text[:16].upper() if balloon_on else ""
+        cloud_px = int(self.elapsed * 0.55)
+        clock_txt = time.strftime("%H:%M")
+        desk_key = (
+            width,
+            height,
+            selected_idx,
+            has_save,
+            has_bookmarks,
+            self.start_menu_open,
+            balloon_on,
+            balloon_msg,
+            cloud_px,
+            clock_txt,
+        )
+        if desk_key == self._cached_desk_key and self._cached_desk_frame is not None:
+            return self._cached_desk_frame
 
         # ── 1. Cached Bliss Rolling Hills & Sky + Sunlit/Shadowed Multi-Lobe Cumulus Clouds ──
         pbuf = self._get_bliss_backdrop(width, desk_h) + [VOID_INT] * (width * tb_h)
@@ -1064,10 +1099,11 @@ class _WinXPDesktopEngine:
             if 0 <= px < width and 0 <= py < height:
                 pbuf[py * width + px] = _pack_rgb(rgb)
 
-        # ── 2. Desktop Icon: Built-in `HEX 3D` Game Software ──
-        boxes = self.get_icon_boxes(width, height, 1)
-        for ix0, iy0, ix1, iy1 in boxes:
-            if icon_selected:
+        # ── 2. Desktop Icons: `HEX 3D` (index 0) & Hybrid `IE 6` Browser (index 1) ──
+        boxes = self.get_icon_boxes(width, height, 2)
+        for idx, (ix0, iy0, ix1, iy1) in enumerate(boxes):
+            is_sel = idx == selected_idx
+            if is_sel:
                 sel_col = _pack_rgb((28, 84, 198))
                 for y in range(max(0, iy0), min(desk_h, iy0 + 8)):
                     row = y * width
@@ -1075,18 +1111,35 @@ class _WinXPDesktopEngine:
                         pbuf[row + x] = _mix_int(pbuf[row + x], sel_col, 0.56)
 
             cx0, cy0, cx1, cy1 = ix0 + 4, iy0, ix1 - 4, iy0 + 8
-            # Mini XP CRT monitor icon with glowing 3D cyber-emerald core
-            fill_rect(cx0, cy0, cx1, cy1, (10, 26, 46), border_rgb=(203, 213, 225))
-            fill_rect(cx0 + 2, cy0 + 1, cx1 - 2, cy0 + 3, (28, 84, 198))
-            fill_rect(cx0 + 3, cy0 + 3, cx0 + 11, cy0 + 7, (16, 185, 129))
-            fill_rect(cx0 + 5, cy0 + 3, cx0 + 9, cy0 + 5, (0, 255, 102))
-            fill_rect(cx1 - 4, cy0 + 4, cx1 - 2, cy0 + 6, (56, 189, 248))
-            if has_save:
-                fill_rect(cx1 - 2, cy0, cx1, cy0 + 2, (0, 255, 102))
+            if idx == 0:
+                # Mini XP CRT monitor icon with glowing 3D cyber-emerald core
+                fill_rect(cx0, cy0, cx1, cy1, (10, 26, 46), border_rgb=(203, 213, 225))
+                fill_rect(cx0 + 2, cy0 + 1, cx1 - 2, cy0 + 3, (28, 84, 198))
+                fill_rect(cx0 + 3, cy0 + 3, cx0 + 11, cy0 + 7, (16, 185, 129))
+                fill_rect(cx0 + 5, cy0 + 3, cx0 + 9, cy0 + 5, (0, 255, 102))
+                fill_rect(cx1 - 4, cy0 + 4, cx1 - 2, cy0 + 6, (56, 189, 248))
+                if has_save:
+                    fill_rect(cx1 - 2, cy0, cx1, cy0 + 2, (0, 255, 102))
+                code_txt = "HEX 3D"
+            else:
+                # Classic Internet Explorer 6 blue `'e'` sphere + golden orbital swoosh
+                fill_rect(cx0 + 3, cy0, cx1 - 3, cy1, (22, 118, 224))
+                fill_rect(cx0 + 1, cy0 + 2, cx1 - 1, cy1 - 2, (22, 118, 224))
+                fill_rect(cx0 + 4, cy0 + 1, cx1 - 4, cy0 + 3, (96, 192, 255))
+                fill_rect(cx0 + 4, cy0 + 3, cx1 - 4, cy0 + 4, (240, 249, 255))
+                fill_rect(cx0 + 3, cy0 + 2, cx0 + 5, cy0 + 6, (240, 249, 255))
+                fill_rect(cx0 + 4, cy0 + 6, cx1 - 5, cy0 + 7, (224, 242, 254))
+                # Golden orbital halo diagonally circling the blue globe
+                for d_step in range(8):
+                    gx = cx0 + 1 + d_step * 2
+                    gy = cy1 - 1 - d_step
+                    fill_rect(gx, gy, min(cx1, gx + 2), min(cy1, gy + 1), (250, 204, 21))
+                if has_bookmarks:
+                    fill_rect(cx1 - 2, cy0, cx1, cy0 + 2, (250, 204, 21))
+                code_txt = "IE 6"
 
-            lbl_bg: RGB = (28, 84, 198) if icon_selected else (18, 36, 72)
+            lbl_bg: RGB = (28, 84, 198) if is_sel else (18, 36, 72)
             fill_rect(ix0, iy0 + 8, ix1, iy0 + 14, lbl_bg)
-            code_txt = "HEX 3D"
             tw_px = _pixel_text_width(code_txt, 1)
             lbl_x = max(ix0, (ix0 + ix1 - tw_px) // 2)
             _draw_pixel_text(
@@ -1190,22 +1243,30 @@ class _WinXPDesktopEngine:
             fill_rect(sm_x0, sm_y0, sm_x1, sm_y0 + 1, (96, 165, 250))
             fill_rect(sm_x0, sm_y0, sm_x0 + 1, sm_y1, (96, 165, 250))
 
-        return _pack_quadrant_buffer(pbuf, width, height)
+        frame = _pack_quadrant_buffer(pbuf, width, height)
+        self._cached_desk_key = desk_key
+        self._cached_desk_frame = frame
+        return frame
 
 
-def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = False):
+def build_arcade_room_app(
+    auto_boot_hex: bool = False,
+    skip_cutscene: bool = False,
+    auto_boot_ie: bool = False,
+):
     """
     Build the pure-pixel Virtual CRT XP Playground App (`xp`):
       • Full-window minimalist CRT presentation with close `[✕]` buttons on every window.
       • Plays the 3D sneak-in cutscene -> Windows XP Boot & `WELCOME` splash -> Windows XP
-        `Bliss` Desktop (`HEX 3D` double-click launch & instant Save/Load state).
+        `Bliss` Desktop (`HEX 3D` and Hybrid `IE 6` double-click launch & instant Save/Load).
     """
+    from rich.markup import escape as escape_markup
     from textual import events, on
     from textual.app import ComposeResult
     from textual.binding import Binding
-    from textual.containers import Center, Horizontal, Vertical
+    from textual.containers import Center, Horizontal, HorizontalScroll, Vertical, VerticalScroll
     from textual.screen import ModalScreen
-    from textual.widgets import Button, Static
+    from textual.widgets import Button, Input, Static
 
     from pykuai.core.tui import (
         CYBER_TUI_CSS,
@@ -1218,6 +1279,11 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
 
         ALLOW_SELECT: ClassVar[bool] = False
         can_focus = False
+
+        def render(self):
+            if getattr(self.app, "_ie_sixel_active_view", False):
+                self.app._ie_sixel_force_reblit = True
+            return super().render()
 
     xp_css = CYBER_TUI_CSS + """
     Screen {
@@ -1234,7 +1300,7 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
         padding: 0;
     }
 
-    #btn-game-close {
+    #btn-game-close, #btn-ie-close {
         width: 5;
         min-width: 5;
         max-width: 5;
@@ -1249,7 +1315,7 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
         content-align: center middle;
     }
 
-    #btn-game-close:hover {
+    #btn-game-close:hover, #btn-ie-close:hover {
         background: #ef4444;
         color: #ffffff;
     }
@@ -1267,19 +1333,258 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
         padding: 0;
     }
 
-    #xp-game-bar {
+    #xp-game-bar, #xp-ie-bar {
         display: none;
         height: 1;
-        background: #1c54c6;
+        background: #0054e3;
         padding: 0;
     }
 
-    #xp-game-title {
+    #xp-game-title, #xp-ie-title {
         width: 1fr;
         height: 1;
+        background: #0054e3;
+        color: #ffffff;
+        text-style: bold;
+        padding: 0 1;
+    }
+
+    #ie-toolbar {
+        display: none;
+        height: 1;
+        background: #ece9d8;
+        color: #0f172a;
+        padding: 0;
+    }
+
+    #ie-addr-lbl {
+        width: auto;
+        height: 1;
+        background: #ece9d8;
+        color: #475569;
+        text-style: bold;
+        padding: 0 1;
+    }
+
+    .ie-tool-btn {
+        width: auto;
+        min-width: 3;
+        height: 1;
+        min-height: 1;
+        border: none;
+        padding: 0 1;
+        margin: 0;
+        background: #e2dfd5;
+        color: #0f172a;
+        text-style: bold;
+    }
+
+    .ie-tool-btn:hover {
+        background: #c7d9f8;
+        color: #003399;
+    }
+
+    .ie-tool-btn.-active,
+    .ie-tool-btn.-on {
+        background: #0054e3;
+        color: #ffffff;
+    }
+
+    #btn-ie-go {
+        background: #16a34a;
+        color: #ffffff;
+        text-style: bold;
+    }
+
+    #btn-ie-go:hover {
+        background: #22c55e;
+        color: #ffffff;
+    }
+
+    #ie-url-input {
+        width: 1fr;
+        min-width: 12;
+        height: 1;
+        border: none;
+        padding: 0 1;
+        margin: 0;
+        background: #ffffff;
+        color: #0f172a;
+    }
+
+    #ie-url-input:focus {
+        background: #eff6ff;
+        color: #0f172a;
+    }
+
+    #ie-tabs-bar {
+        display: none;
+        height: 1;
+        background: #e3dfd2;
+        color: #1e293b;
+        padding: 0;
+    }
+
+    #ie-links-lbl {
+        width: auto;
+        height: 1;
+        color: #334155;
+        text-style: bold;
+        padding: 0 1;
+    }
+
+    #ie-bm-list {
+        width: 1fr;
+        height: 1;
+        scrollbar-size: 0 0;
+        background: #e3dfd2;
+    }
+
+    .ie-bm-btn {
+        width: auto;
+        min-width: 4;
+        height: 1;
+        min-height: 1;
+        border: none;
+        padding: 0 1;
+        margin: 0 1 0 0;
+        background: #efece3;
+        color: #003399;
+    }
+
+    .ie-bm-btn:hover {
+        background: #dbeafe;
+        color: #1d4ed8;
+        text-style: bold;
+    }
+
+    .ie-bm-btn.-active {
+        background: #0054e3;
+        color: #ffffff;
+        text-style: bold;
+    }
+
+    #btn-ie-del-bm {
+        width: auto;
+        min-width: 5;
+        height: 1;
+        min-height: 1;
+        border: none;
+        padding: 0 1;
+        background: #d8d4c5;
+        color: #991b1b;
+        text-style: bold;
+    }
+
+    #btn-ie-del-bm:hover {
+        background: #fecaca;
+        color: #7f1d1d;
+    }
+
+    #ie-view-ctrl {
+        display: none;
+        height: 1;
+        background: #ddd9cc;
+        color: #0f172a;
+        padding: 0;
+    }
+
+    #ie-page-type {
+        width: 1fr;
+        min-width: 10;
+        height: 1;
+        border: none;
+        padding: 0 1;
+        background: #ffffff;
+        color: #0f172a;
+    }
+
+    #ie-text-view {
+        display: none;
+        border: heavy #94a3b8;
+        background: #f8fafc;
+        color: #0f172a;
+        padding: 0 1;
+        scrollbar-size: 1 1;
+    }
+
+    .ie-doc-title {
+        color: #1e3a8a;
+        text-style: bold;
+        height: auto;
+        margin-top: 0;
+    }
+
+    .ie-doc-meta {
+        color: #475569;
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    .ie-doc-sec {
+        color: #0f172a;
+        text-style: bold;
+        margin-top: 1;
+        margin-bottom: 0;
+    }
+
+    .ie-doc-line {
+        color: #1e293b;
+        height: auto;
+    }
+
+    .ie-dom-form {
+        height: 1;
+        margin-bottom: 1;
+        background: #e2e8f0;
+    }
+
+    .ie-dom-input {
+        width: 1fr;
+        min-width: 12;
+        height: 1;
+        border: none;
+        padding: 0 1;
+        background: #ffffff;
+        color: #0f172a;
+    }
+
+    .ie-dom-go-btn {
+        width: auto;
+        min-width: 6;
+        height: 1;
+        min-height: 1;
+        border: none;
+        padding: 0 1;
         background: #1c54c6;
         color: #ffffff;
         text-style: bold;
+    }
+
+    .ie-link-btn {
+        width: 100%;
+        height: 1;
+        min-height: 1;
+        border: none;
+        padding: 0;
+        margin: 0;
+        background: #f8fafc;
+        color: #1d4ed8;
+        content-align: left middle;
+        text-align: left;
+    }
+
+    .ie-link-btn:hover {
+        background: #dbeafe;
+        color: #1e3a8a;
+        text-style: bold underline;
+    }
+
+    #ie-status-bar {
+        display: none;
+        height: 1;
+        background: #ece9d8;
+        color: #334155;
         padding: 0 1;
     }
 
@@ -1299,6 +1604,14 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
     }
     """
 
+    class _IeAddressInput(Input):
+        """Address bar that auto-selects existing URL text on focus like native IE6."""
+
+        @on(events.Focus)
+        def _select_existing_url_on_focus(self) -> None:
+            if self.value:
+                self.call_after_refresh(self.select_all)
+
     class ArcadeWinXPApp(PyKuaiStudioApp):
         ALLOW_SELECT: ClassVar[bool] = False
         CSS = xp_css
@@ -1306,42 +1619,115 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
         HELP_TEXT = ROOM3D_HELP_TEXT
         BINDINGS = [
             *PyKuaiStudioApp.BINDINGS,
-            Binding("question_mark", "show_help", "Help", show=False),
+            Binding("question_mark", "help_shortcut", "Help", show=False),
             Binding("enter", "primary_action", "Launch/Start", show=False),
             Binding("space", "space_action", "Skip/Pause", show=False),
             Binding("right", "key_right", "Right", show=False),
-            Binding("d", "key_right", "Right", show=False),
-            Binding("D", "key_right", "Right", show=False),
+            Binding("d", "wasd_right", "Right", show=False),
+            Binding("D", "wasd_right", "Right", show=False),
             Binding("left", "key_left", "Left", show=False),
-            Binding("a", "key_left", "Left", show=False),
-            Binding("A", "key_left", "Left", show=False),
+            Binding("a", "wasd_left", "Left", show=False),
+            Binding("A", "wasd_left", "Left", show=False),
             Binding("up", "key_up", "Up", show=False),
-            Binding("w", "key_up", "Up", show=False),
-            Binding("W", "key_up", "Up", show=False),
+            Binding("w", "wasd_up", "Up", show=False),
+            Binding("W", "wasd_up", "Up", show=False),
+            Binding("down", "key_down", "Down", show=False),
+            Binding("s", "wasd_down", "Down", show=False),
+            Binding("S", "wasd_down", "Down", show=False),
             Binding("f5", "save_game_state", "Save State", show=False),
             Binding("f8", "load_game_state", "Load State", show=False),
             Binding("r", "restart_game", "Restart", show=False),
             Binding("R", "restart_game", "Restart", show=False),
             Binding("p", "pause_game", "Pause", show=False),
             Binding("P", "pause_game", "Pause", show=False),
-            Binding("q", "back_or_exit", "Exit", show=False),
-            Binding("Q", "back_or_exit", "Exit", show=False),
+            Binding("q", "quit_key", "Exit", show=False),
+            Binding("Q", "quit_key", "Exit", show=False),
         ]
+
+        _IE_VIEW_PASSTHROUGH_ACTIONS = frozenset(
+            {
+                "help_shortcut",
+                "primary_action",
+                "space_action",
+                "wasd_right",
+                "wasd_left",
+                "wasd_up",
+                "wasd_down",
+                "restart_game",
+                "pause_game",
+                "quit_key",
+            }
+        )
+
+        def check_action(self, action: str, parameters: tuple[object, ...]) -> Optional[bool]:
+            if (
+                self.mode == "xp_ie6"
+                and self.ie_view_mode == "view"
+                and not isinstance(self.screen, ModalScreen)
+                and not isinstance(self.focused, Input)
+                and action in self._IE_VIEW_PASSTHROUGH_ACTIONS
+            ):
+                return False
+            return super().check_action(action, parameters)
 
         def __init__(self) -> None:
             super().__init__()
-            self.icon_selected = True
+            self.selected_icon = 0  # 0 = HEX 3D, 1 = IE 6
             self.cutscene = _True3DCutsceneEngine()
             self.xp = _WinXPDesktopEngine()
-            # Modes: "cutscene" -> "xp_boot" -> "xp_desktop" -> "xp_playing"
+            # Modes: "cutscene" -> "xp_boot" -> "xp_desktop" -> ("xp_playing" | "xp_ie6")
             self.mode = "xp_desktop" if skip_cutscene else "cutscene"
             self.hex_engine: Optional[_Hex3DEngine] = None
             self.pending_auto_boot = bool(auto_boot_hex)
+            self.pending_auto_ie = bool(auto_boot_ie)
+
+            # Native HiDPI IE6 Browser state ("view" primary native pixels | "text" optional reader)
+            self.ie_bookmarks: list[dict[str, str]] = load_bookmarks()
+            self.ie_session: Optional[IE6BrowserSession] = None
+            self.ie_view_mode = "view"
+            self.sixel_caps: TerminalGraphicsInfo = get_cached_terminal_sixel_info()
+            self.ie_use_sixel: bool = bool(self.sixel_caps.sixel_supported)
+            self.ie_zoom = 1
+            self.ie_pan_x = 0.5
+            self.ie_pan_y = 0.5
+            self._ie_crop_bounds: tuple[float, float, float, float] = (0.0, 0.0, 1.0, 1.0)
+            self._ie_last_ui_seq = -1
+            self._ie_last_text_seq = -1
+            self._ie_last_tabs_sig = ""
+            self._ie_synced_url: Optional[str] = None
+            self._ie_last_shot_key: tuple[object, ...] = ()
+            self._ie_cached_frame: Optional[Text] = None
+            self._ie_sixel_active_view = False
+            self._ie_sixel_force_reblit = False
+            self._ie_sixel_drawn_box: Optional[tuple[int, int, int, int]] = None
+            self._ie_sixel_last_key: tuple[object, ...] = ()
+            self._ie_sixel_payload = ""
+            self._ie_sixel_size: tuple[int, int] = (0, 0)
+            self._ie_blank_dims: tuple[int, int] = (0, 0)
+            self._ie_blank_frame: Optional[Text] = None
+            self._ie_last_title_str = ""
+            self._ie_last_status_str = ""
+            self._ie_live_accum = 0.0
+
             self._desk_idle_accum = 0.0
+            self._desk_last_cloud_px = -1
+            self._desk_last_minute = -1
+            self._xp_last_frame_id = 0
+            self._tick_cooldown_until = 0.0
             self._last_tick = time.perf_counter()
             self._last_click_ts = 0.0
+            self._last_click_icon = -1
             self.pix_w = DEFAULT_PIX_W
             self.pix_h = DEFAULT_PIX_H
+            self.ie_cols = DEFAULT_PIX_W // 2
+            self.ie_rows = DEFAULT_PIX_H // 2
+            self.ie_pix_w = self.ie_cols
+            self.ie_pix_h = self.ie_rows * 2
+
+        def _active_canvas_dims(self) -> tuple[int, int]:
+            if self.mode == "xp_ie6":
+                return self.ie_pix_w, self.ie_pix_h
+            return self.pix_w, self.pix_h
 
         def _recompute_viewport(self) -> None:
             tw = max(48, self.size.width)
@@ -1354,11 +1740,27 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
             self.pix_w = view_cols * 2
             self.pix_h = view_rows * 2
 
+            ie_overhead = 7 if self.ie_view_mode == "view" else 6
+            ie_view_rows = min(90, max(10, th - ie_overhead))
+            self.ie_cols = view_cols
+            self.ie_rows = ie_view_rows
+            self.ie_pix_w = self.ie_cols
+            self.ie_pix_h = self.ie_rows * 2
+
+            box_w = view_cols + 2
+            for bar_id in ("#xp-game-bar", "#xp-ie-bar", "#ie-toolbar", "#ie-tabs-bar", "#ie-view-ctrl", "#ie-status-bar"):
+                self.query_one(bar_id).styles.width = box_w
+
             vp = self.query_one("#crt-viewport", _CrtCanvas)
-            vp.styles.width = view_cols + 2
-            vp.styles.height = view_rows + 2
-            gbar = self.query_one("#xp-game-bar", Horizontal)
-            gbar.styles.width = view_cols + 2
+            tv = self.query_one("#ie-text-view", VerticalScroll)
+            if self.mode == "xp_ie6":
+                vp.styles.width = box_w
+                vp.styles.height = ie_view_rows + 2
+            else:
+                vp.styles.width = box_w
+                vp.styles.height = view_rows + 2
+            tv.styles.width = box_w
+            tv.styles.height = ie_view_rows + 2
 
         def compose(self) -> ComposeResult:
             with Vertical(id="crt-shell"):
@@ -1369,7 +1771,69 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
                             btn_game = Button("✕", id="btn-game-close")
                             btn_game.can_focus = False
                             yield btn_game
+
+                        with Horizontal(id="xp-ie-bar"):
+                            yield Static(" e  Microsoft Internet Explorer", id="xp-ie-title")
+                            btn_ie_close = Button("✕", id="btn-ie-close")
+                            btn_ie_close.can_focus = False
+                            yield btn_ie_close
+
+                        with Horizontal(id="ie-toolbar"):
+                            for b_id, lbl in (
+                                ("btn-ie-back", "←"),
+                                ("btn-ie-fwd", "→"),
+                                ("btn-ie-reload", "↻"),
+                                ("btn-ie-home", "⌂"),
+                            ):
+                                b = Button(lbl, id=b_id, classes="ie-tool-btn")
+                                b.can_focus = False
+                                yield b
+                            yield Static("Addr", id="ie-addr-lbl")
+                            url_in = _IeAddressInput(
+                                placeholder="Enter URL or domain (e.g. github.com)",
+                                id="ie-url-input",
+                            )
+                            url_in.can_focus = False
+                            yield url_in
+                            for b_id, lbl in (
+                                ("btn-ie-go", "Go"),
+                                ("btn-ie-mode-view", "VIEW"),
+                                ("btn-ie-mode-text", "Txt"),
+                                ("btn-ie-save", "★ Save"),
+                            ):
+                                b = Button(lbl, id=b_id, classes="ie-tool-btn")
+                                b.can_focus = False
+                                yield b
+
+                        with Horizontal(id="ie-tabs-bar"):
+                            yield Static("Links »", id="ie-links-lbl")
+                            yield HorizontalScroll(id="ie-bm-list")
+                            btn_del = Button("Del", id="btn-ie-del-bm")
+                            btn_del.can_focus = False
+                            yield btn_del
+
+                        with Horizontal(id="ie-view-ctrl"):
+                            for b_id, lbl in (
+                                ("btn-ie-zoom", "🔍 1x"),
+                                ("btn-ie-gfx", "HD·Six" if self.ie_use_sixel else "HB·Blk"),
+                                ("btn-ie-pan-up", "▲"),
+                                ("btn-ie-pan-down", "▼"),
+                                ("btn-ie-pan-left", "◀"),
+                                ("btn-ie-pan-right", "▶"),
+                            ):
+                                b = Button(lbl, id=b_id, classes="ie-tool-btn")
+                                b.can_focus = False
+                                yield b
+                            page_in = Input(placeholder="Click page & type directly, or paste/send here...", id="ie-page-type")
+                            page_in.can_focus = False
+                            yield page_in
+                            btn_send = Button("Send", id="btn-ie-type-send", classes="ie-tool-btn")
+                            btn_send.can_focus = False
+                            yield btn_send
+
                         yield _CrtCanvas("", id="crt-viewport")
+                        yield VerticalScroll(id="ie-text-view")
+                        yield Static("", id="ie-status-bar")
 
         def on_mount(self) -> None:
             warmup_arcade_sfx()
@@ -1379,35 +1843,235 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
             elif self.pending_auto_boot:
                 self.pending_auto_boot = False
                 self._boot_hex3d()
+            elif self.pending_auto_ie:
+                self.pending_auto_ie = False
+                self._boot_ie6()
             self._sync_view()
             self._last_tick = time.perf_counter()
             self.set_interval(1.0 / 30.0, self._on_tick)
 
+        def on_unmount(self) -> None:
+            self._clear_sixel_overlay_now()
+            self._ie_sixel_payload = ""
+            if self.ie_session is not None:
+                self.ie_session.close()
+                self.ie_session = None
+
         def on_resize(self, event: events.Resize) -> None:
+            self._clear_sixel_overlay_now()
+            self._ie_sixel_last_key = ()
+            self._ie_blank_dims = (0, 0)
             self._recompute_viewport()
             self._sync_view()
 
+        def _is_sixel_preferred(self) -> bool:
+            return bool(self.sixel_caps.sixel_supported and self.ie_use_sixel)
+
+        def _get_ie_blank_frame(self, cols: int, rows: int) -> Text:
+            dims = (cols, rows)
+            if self._ie_blank_dims != dims or self._ie_blank_frame is None:
+                self._ie_blank_dims = dims
+                line = " " * cols
+                self._ie_blank_frame = Text("\n".join([line] * rows), style="on #090e1a")
+            return self._ie_blank_frame
+
+        def _compute_ie_viewport_spec(self) -> tuple[int, int, int, int, int, int, int]:
+            use_sixel = self._is_sixel_preferred()
+            if use_sixel:
+                target_w = max(24, self.ie_cols * max(4, self.sixel_caps.cell_w))
+                target_h = max(24, ((self.ie_rows * max(8, self.sixel_caps.cell_h)) // 6) * 6)
+            else:
+                target_w = max(16, self.ie_cols)
+                target_h = max(16, self.ie_rows * 2)
+
+            aspect = max(0.35, target_w / max(1, target_h))
+            if use_sixel:
+                css_w = min(1600, target_w) if target_w >= 880 else 960
+                css_h = round(css_w / aspect)
+                if css_h < 320:
+                    css_h = 320
+                    css_w = min(1600, max(480, round(css_h * aspect)))
+                elif css_h > 1080:
+                    css_h = 1080
+                    css_w = min(1600, max(480, round(css_h * aspect)))
+                scale = 2 if self.ie_zoom >= 2 else 1
+                max_stream_w = 1920 if scale >= 2 else 1440
+                stream_w = min(max_stream_w, target_w * scale)
+                stream_h = min(1200, target_h * scale)
+            else:
+                css_w = 1024
+                css_h = max(320, min(1080, round(css_w / aspect)))
+                scale = 2 if self.ie_zoom >= 2 else 1
+                stream_w = min(1920, max(css_w, target_w * 4))
+                stream_h = min(1200, max(css_h, target_h * 4))
+            return target_w, target_h, int(css_w), int(css_h), int(scale), int(stream_w), int(stream_h)
+
+        def _sync_ie_browser_viewport(self) -> tuple[int, int]:
+            target_w, target_h, css_w, css_h, scale, stream_w, stream_h = self._compute_ie_viewport_spec()
+            if self.ie_session is not None:
+                self.ie_session.set_viewport(
+                    css_w,
+                    css_h,
+                    scale=scale,
+                    stream_max_w=stream_w,
+                    stream_max_h=stream_h,
+                )
+                self.ie_session.configure_sixel(
+                    self._is_sixel_preferred() and self.ie_view_mode == "view",
+                    target_w,
+                    target_h,
+                    zoom=self.ie_zoom,
+                    pan_x=self.ie_pan_x,
+                    pan_y=self.ie_pan_y,
+                )
+            return target_w, target_h
+
+        def _write_vt_raw(self, seq: str) -> None:
+            if not seq or self.is_headless or self._driver is None:
+                return
+            write = self._driver.write
+            chunk_size = 8192
+            for offset in range(0, len(seq), chunk_size):
+                write(seq[offset : offset + chunk_size])
+            self._driver.flush()
+
+        def _erase_vt_rect(self, box: tuple[int, int, int, int]) -> None:
+            col0, row0, cols, rows = box
+            if cols <= 0 or rows <= 0:
+                return
+            blank_line = " " * cols
+            parts = ["\x1b[?2026h\x1b7\x1b[48;2;9;14;26m\x1b[38;2;9;14;26m"]
+            for dy in range(rows):
+                parts.append(f"\x1b[{row0 + dy + 1};{col0 + 1}H{blank_line}")
+            parts.append("\x1b[0m\x1b8\x1b[?2026l")
+            self._write_vt_raw("".join(parts))
+
+        def _clear_sixel_overlay_now(self) -> None:
+            self._ie_sixel_active_view = False
+            self._ie_sixel_force_reblit = False
+            box = self._ie_sixel_drawn_box
+            self._ie_sixel_drawn_box = None
+            if box is not None:
+                self._erase_vt_rect(box)
+
+        def _blit_sixel_overlay(self) -> None:
+            if not self._ie_sixel_active_view or not self._ie_sixel_payload:
+                return
+            if isinstance(self.screen, ModalScreen):
+                return
+            vp = self.query_one("#crt-viewport", _CrtCanvas)
+            if not vp.display:
+                return
+            creg = vp.content_region
+            if creg.width <= 0 or creg.height <= 0:
+                self._ie_sixel_force_reblit = True
+                return
+            self._ie_sixel_force_reblit = False
+            box = (creg.x, creg.y, creg.width, creg.height)
+            if self._ie_sixel_drawn_box is not None and self._ie_sixel_drawn_box != box:
+                self._erase_vt_rect(self._ie_sixel_drawn_box)
+            self._ie_sixel_drawn_box = box
+            seq = f"\x1b[?2026h\x1b7\x1b[{creg.y + 1};{creg.x + 1}H{self._ie_sixel_payload}\x1b[0m\x1b8\x1b[?2026l"
+            self._write_vt_raw(seq)
+
+        def post_display_hook(self) -> None:
+            super().post_display_hook()
+            if (
+                self._ie_sixel_active_view
+                and self._ie_sixel_force_reblit
+                and self._ie_sixel_payload
+                and not isinstance(self.screen, ModalScreen)
+            ):
+                self._blit_sixel_overlay()
+
+        def _on_help_dismissed(self, _result: object = None) -> None:
+            self._ie_sixel_force_reblit = True
+            if self.mode == "xp_ie6" and self.ie_view_mode == "view" and self._is_sixel_preferred():
+                self._ie_sixel_active_view = True
+                self.query_one("#crt-viewport", _CrtCanvas).refresh()
+            self._sync_view()
+
+        def action_show_help(self) -> None:
+            if isinstance(self.screen, HelpModalScreen):
+                self.screen.action_dismiss_help()
+                return
+            self._clear_sixel_overlay_now()
+            if not self.HELP_TEXT:
+                return
+            self.push_screen(
+                HelpModalScreen(self.HELP_TITLE or "Feature Guide", self.HELP_TEXT),
+                callback=self._on_help_dismissed,
+            )
+
         def _screen_to_subpixel(self, screen_x: int, screen_y: int) -> Optional[tuple[int, int]]:
             vp = self.query_one("#crt-viewport", _CrtCanvas)
+            if not vp.display:
+                return None
             creg = vp.content_region
             if not creg.contains(screen_x, screen_y):
                 return None
             cx_cell = screen_x - creg.x
             cy_cell = screen_y - creg.y
-            if cx_cell < 0 or cy_cell < 0 or cx_cell >= self.pix_w // 2 or cy_cell >= self.pix_h // 2:
+            aw, ah = self._active_canvas_dims()
+            if cx_cell < 0 or cy_cell < 0 or cx_cell >= aw // 2 or cy_cell >= ah // 2:
                 return None
             return cx_cell * 2 + 1, cy_cell * 2 + 1
+
+        def _screen_to_ie_cell(self, screen_x: int, screen_y: int) -> Optional[tuple[int, int]]:
+            vp = self.query_one("#crt-viewport", _CrtCanvas)
+            if not vp.display:
+                return None
+            creg = vp.content_region
+            if not creg.contains(screen_x, screen_y):
+                return None
+            cx_cell = screen_x - creg.x
+            cy_cell = screen_y - creg.y
+            if cx_cell < 0 or cy_cell < 0 or cx_cell >= self.ie_cols or cy_cell >= self.ie_rows:
+                return None
+            return cx_cell, cy_cell
 
         @on(Button.Pressed, "#btn-game-close")
         def _on_game_close_pressed(self) -> None:
             if self.mode == "xp_playing":
                 self._close_game_to_xp_desktop()
 
+        @on(Button.Pressed, "#btn-ie-close")
+        def _on_ie_close_pressed(self) -> None:
+            if self.mode == "xp_ie6":
+                self._close_ie6_to_xp_desktop()
+
         def on_mouse_down(self, event: events.MouseDown) -> None:
             if isinstance(self.screen, ModalScreen):
                 return
             if self.screen.selections:
                 self.screen.clear_selection()
+
+            if self.mode == "xp_ie6" and self.ie_view_mode == "view" and self.ie_session is not None:
+                cell = self._screen_to_ie_cell(event.screen_x, event.screen_y)
+                if cell is None:
+                    return
+                snap = self.ie_session.get_snapshot()
+                if snap.url == ABOUT_HOME_URL:
+                    play_sfx("click")
+                    self.set_focus(self.query_one("#ie-url-input", Input))
+                    return
+                cx_cell, cy_cell = cell
+                u0, v0, u1, v1 = self._ie_crop_bounds
+                if self._ie_sixel_active_view and self._ie_sixel_size[1] > 0:
+                    cell_w = max(1, self.sixel_caps.cell_w)
+                    cell_h = max(1, self.sixel_caps.cell_h)
+                    fx = min(1.0, ((cx_cell + 0.5) * cell_w) / max(1, self._ie_sixel_size[0]))
+                    fy = min(1.0, ((cy_cell + 0.5) * cell_h) / max(1, self._ie_sixel_size[1]))
+                else:
+                    fx = (cx_cell + 0.5) / max(1, self.ie_cols)
+                    fy = (cy_cell + 0.5) / max(1, self.ie_rows)
+                page_u = max(0.0, min(1.0, u0 + fx * (u1 - u0)))
+                page_v = max(0.0, min(1.0, v0 + fy * (v1 - v0)))
+                self.set_focus(None)
+                play_sfx("click")
+                self.ie_session.dispatch_click(page_u, page_v)
+                return
+
             pt = self._screen_to_subpixel(event.screen_x, event.screen_y)
             if pt is None:
                 return
@@ -1449,15 +2113,23 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
                         return
                     self.xp.start_menu_open = False
 
-                boxes = self.xp.get_icon_boxes(self.pix_w, self.pix_h, 1)
+                boxes = self.xp.get_icon_boxes(self.pix_w, self.pix_h, 2)
                 now = time.perf_counter()
-                for ix0, iy0, ix1, iy1 in boxes:
-                    if ix0 - 2 <= px <= ix1 + 2 and iy0 - 1 <= py <= iy1 + 1:
-                        is_dbl = self.icon_selected and (now - self._last_click_ts) <= 0.70
-                        self.icon_selected = True
+                for idx, (ix0, iy0, ix1, iy1) in enumerate(boxes):
+                    if ix0 - 4 <= px <= ix1 + 4 and iy0 - 2 <= py <= iy1 + 3:
+                        is_dbl = (
+                            self.selected_icon == idx
+                            and self._last_click_icon == idx
+                            and (now - self._last_click_ts) <= 0.95
+                        )
+                        self.selected_icon = idx
+                        self._last_click_icon = idx
                         if is_dbl:
                             self._last_click_ts = 0.0
-                            self._boot_hex3d()
+                            if idx == 0:
+                                self._boot_hex3d()
+                            else:
+                                self._boot_ie6()
                         else:
                             self._last_click_ts = now
                             play_sfx("click")
@@ -1467,11 +2139,25 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
                 self._last_click_ts = 0.0
                 self._sync_view()
 
+        def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
+            if self.mode == "xp_ie6" and self.ie_view_mode == "view" and self.ie_session is not None:
+                if self._screen_to_ie_cell(event.screen_x, event.screen_y) is not None:
+                    self.ie_session.dispatch_scroll(-280)
+
+        def on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
+            if self.mode == "xp_ie6" and self.ie_view_mode == "view" and self.ie_session is not None:
+                if self._screen_to_ie_cell(event.screen_x, event.screen_y) is not None:
+                    self.ie_session.dispatch_scroll(280)
+
         def _enter_xp_boot(self) -> None:
             self.cutscene.done = True
             if self.pending_auto_boot:
                 self.pending_auto_boot = False
                 self._boot_hex3d()
+                return
+            if self.pending_auto_ie:
+                self.pending_auto_ie = False
+                self._boot_ie6()
                 return
             self.mode = "xp_boot"
             self.xp.reset_boot()
@@ -1481,6 +2167,10 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
             if self.pending_auto_boot:
                 self.pending_auto_boot = False
                 self._boot_hex3d()
+                return
+            if self.pending_auto_ie:
+                self.pending_auto_ie = False
+                self._boot_ie6()
                 return
             self.mode = "xp_desktop"
             self._sync_view()
@@ -1493,6 +2183,7 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
                     self.hex_engine.deserialize_state(raw)
             play_sfx("enter")
             self.mode = "xp_playing"
+            self._recompute_viewport()
             self._sync_view()
 
         def _persist_hex_state(self) -> None:
@@ -1509,9 +2200,369 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
             self._persist_hex_state()
             self.hex_engine = None
             self.mode = "xp_desktop"
+            self.selected_icon = 0
             play_sfx("click")
             self.xp.show_balloon("HEX 3D SAVED", duration=3.2)
+            self._recompute_viewport()
             self._sync_view()
+
+        # ── IE6 Native Browser Lifecycle & Controls ──
+
+        def _boot_ie6(self) -> None:
+            self.ie_bookmarks = load_bookmarks()
+            if self.ie_session is None:
+                self.ie_session = IE6BrowserSession(self.ie_bookmarks)
+            self.ie_view_mode = "view"
+            self.ie_zoom = 1
+            self.ie_pan_x = 0.5
+            self.ie_pan_y = 0.5
+            self._ie_crop_bounds = (0.0, 0.0, 1.0, 1.0)
+            self._ie_last_ui_seq = -1
+            self._ie_last_text_seq = -1
+            self._ie_last_tabs_sig = ""
+            self._ie_synced_url = None
+            self._ie_last_shot_key = ()
+            self._ie_cached_frame = None
+            self._ie_sixel_active_view = False
+            self._ie_sixel_force_reblit = False
+            self._ie_sixel_last_key = ()
+            self._ie_sixel_payload = ""
+            self._ie_sixel_size = (0, 0)
+            self._ie_last_title_str = ""
+            self._ie_last_status_str = ""
+            play_sfx("enter")
+            self.mode = "xp_ie6"
+            self._recompute_viewport()
+            self._sync_ie_browser_viewport()
+            self._sync_view()
+
+        def _close_ie6_to_xp_desktop(self) -> None:
+            self._clear_sixel_overlay_now()
+            self._ie_sixel_payload = ""
+            self._ie_sixel_last_key = ()
+            if self.ie_session is not None:
+                self.ie_session.close()
+                self.ie_session = None
+            self.mode = "xp_desktop"
+            self.selected_icon = 1
+            self._ie_last_ui_seq = -1
+            self._ie_last_text_seq = -1
+            self._ie_last_shot_key = ()
+            self._ie_cached_frame = None
+            self._ie_last_title_str = ""
+            self._ie_last_status_str = ""
+            play_sfx("click")
+            self.xp.show_balloon("IE 6 CLOSED", duration=2.4)
+            self._recompute_viewport()
+            self._sync_view()
+
+        def _ie_navigate(self, raw_text: str) -> None:
+            if self.ie_session is None:
+                return
+            self.ie_pan_x = 0.5
+            self.ie_pan_y = 0.5
+            self._ie_cached_frame = None
+            self._ie_sixel_last_key = ()
+            self._ie_synced_url = None
+            self._sync_ie_browser_viewport()
+            resolved = self.ie_session.navigate(raw_text)
+            url_in = self.query_one("#ie-url-input", Input)
+            display_url = "" if resolved == ABOUT_HOME_URL else resolved
+            url_in.value = display_url
+            self._ie_synced_url = display_url
+            self._sync_view()
+
+        def _rebuild_ie_tabs(self, active_url: str) -> None:
+            sig = f"{active_url}|" + "|".join(f"{b['label']}={b['url']}" for b in self.ie_bookmarks)
+            if sig == self._ie_last_tabs_sig:
+                return
+            self._ie_last_tabs_sig = sig
+            container = self.query_one("#ie-bm-list", HorizontalScroll)
+            container.remove_children()
+            norm_active = active_url.rstrip("/")
+            for bm in self.ie_bookmarks:
+                bm_url = bm["url"]
+                bm_lbl = f"★ {bm['label']}"
+                btn = Button(escape_markup(bm_lbl), name=bm_url, classes="ie-bm-btn")
+                btn.can_focus = False
+                if bm_url.rstrip("/") == norm_active:
+                    btn.add_class("-active")
+                container.mount(btn)
+
+        def _rebuild_ie_text_pane(self, snap: PageSnapshot) -> None:
+            tv = self.query_one("#ie-text-view", VerticalScroll)
+            tv.remove_children()
+
+            tv.mount(Static(Text(f"{snap.title or 'Internet Explorer'}"), classes="ie-doc-title"))
+            status_line = f"[{snap.backend_label}] {snap.url}"
+            if snap.loading:
+                status_line = f"⏳ {snap.status_text}"
+            elif snap.error:
+                status_line = f"⚠ {snap.error}"
+            tv.mount(Static(Text(status_line), classes="ie-doc-meta"))
+
+            for inp in snap.inputs:
+                row_children = []
+                in_widget = Input(
+                    value=inp.value,
+                    placeholder=inp.placeholder,
+                    name=str(inp.idx),
+                    classes="ie-dom-input",
+                )
+                go_btn = Button("Search", name=str(inp.idx), classes="ie-dom-go-btn")
+                go_btn.can_focus = False
+                row_children.append(in_widget)
+                row_children.append(go_btn)
+                tv.mount(Horizontal(*row_children, classes="ie-dom-form"))
+
+            if snap.lines:
+                for line in snap.lines[:45]:
+                    tv.mount(Static(Text(line), classes="ie-doc-line"))
+
+            if snap.links:
+                tv.mount(
+                    Static(
+                        Text(f"Links ({len(snap.links)}) — Click any link below or switch to [VIEW] for live pixels:"),
+                        classes="ie-doc-sec",
+                    )
+                )
+                for idx, lk in enumerate(snap.links[:55], 1):
+                    short_host = lk.href.split("://", 1)[-1][:34]
+                    lbl = f"[{idx:02d}] {lk.text}   ->   {short_host}"
+                    btn = Button(escape_markup(lbl), name=lk.href, classes="ie-link-btn")
+                    btn.can_focus = False
+                    tv.mount(btn)
+
+            tv.scroll_home(animate=False)
+
+        @on(Button.Pressed, "#btn-ie-back")
+        def _on_ie_back(self) -> None:
+            if self.mode == "xp_ie6" and self.ie_session is not None:
+                play_sfx("click")
+                self._ie_synced_url = None
+                self.ie_session.back()
+
+        @on(Button.Pressed, "#btn-ie-fwd")
+        def _on_ie_fwd(self) -> None:
+            if self.mode == "xp_ie6" and self.ie_session is not None:
+                play_sfx("click")
+                self._ie_synced_url = None
+                self.ie_session.forward()
+
+        @on(Button.Pressed, "#btn-ie-reload")
+        def _on_ie_reload(self) -> None:
+            if self.mode == "xp_ie6" and self.ie_session is not None:
+                play_sfx("click")
+                self._ie_synced_url = None
+                self.ie_session.reload()
+
+        @on(Button.Pressed, "#btn-ie-home")
+        def _on_ie_home(self) -> None:
+            if self.mode == "xp_ie6" and self.ie_session is not None:
+                play_sfx("click")
+                self._ie_synced_url = None
+                self.ie_session.go_home(self.ie_bookmarks)
+
+        @on(Button.Pressed, "#btn-ie-go")
+        def _on_ie_go(self) -> None:
+            if self.mode == "xp_ie6":
+                play_sfx("enter")
+                raw = self.query_one("#ie-url-input", Input).value
+                self.set_focus(None)
+                self._ie_navigate(raw)
+
+        @on(Button.Pressed, "#btn-ie-mode-text")
+        def _on_ie_mode_text(self) -> None:
+            if self.mode == "xp_ie6" and self.ie_view_mode != "text":
+                play_sfx("click")
+                self._clear_sixel_overlay_now()
+                self.ie_view_mode = "text"
+                self._sync_ie_browser_viewport()
+                self._recompute_viewport()
+                self._sync_view()
+
+        @on(Button.Pressed, "#btn-ie-mode-view")
+        def _on_ie_mode_view(self) -> None:
+            if self.mode == "xp_ie6" and self.ie_view_mode != "view":
+                play_sfx("click")
+                self.ie_view_mode = "view"
+                self._ie_sixel_force_reblit = True
+                if self.ie_session is not None:
+                    self._sync_ie_browser_viewport()
+                    self.ie_session.request_live_frame()
+                self._recompute_viewport()
+                self._sync_view()
+
+        @on(Button.Pressed, "#btn-ie-save")
+        def _on_ie_save_bm(self) -> None:
+            if self.mode != "xp_ie6" or self.ie_session is None:
+                return
+            snap = self.ie_session.get_snapshot()
+            if not snap.url or snap.url == ABOUT_HOME_URL:
+                play_sfx("paste")
+                self.query_one("#ie-status-bar", Static).update(
+                    Text("Open a website first to save it to your bookmarks bar.")
+                )
+                return
+            label = (snap.title or snap.url).strip()
+            if len(label) > 22:
+                label = label[:21] + "…"
+            norm = snap.url.rstrip("/")
+            updated = False
+            for bm in self.ie_bookmarks:
+                if bm["url"].rstrip("/") == norm:
+                    bm["url"] = snap.url
+                    bm["label"] = label
+                    updated = True
+                    break
+            if not updated:
+                self.ie_bookmarks.append({"label": label, "url": snap.url})
+            save_bookmarks(self.ie_bookmarks)
+            self._ie_last_tabs_sig = ""
+            play_sfx("enter")
+            self._sync_view()
+
+        @on(Button.Pressed, "#btn-ie-del-bm")
+        def _on_ie_del_bm(self) -> None:
+            if self.mode != "xp_ie6" or self.ie_session is None:
+                return
+            snap = self.ie_session.get_snapshot()
+            norm = snap.url.rstrip("/")
+            before = len(self.ie_bookmarks)
+            self.ie_bookmarks = [b for b in self.ie_bookmarks if b["url"].rstrip("/") != norm]
+            if len(self.ie_bookmarks) == before:
+                play_sfx("paste")
+                self.query_one("#ie-status-bar", Static).update(
+                    Text("Current URL is not in bookmarks. Open a ★ tab first to delete it.")
+                )
+                return
+            save_bookmarks(self.ie_bookmarks)
+            self._ie_last_tabs_sig = ""
+            play_sfx("click")
+            self._sync_view()
+
+        @on(Button.Pressed, "#btn-ie-gfx")
+        def _on_ie_gfx_toggle(self) -> None:
+            if self.mode != "xp_ie6":
+                return
+            if not self.sixel_caps.sixel_supported:
+                play_sfx("paste")
+                self.query_one("#ie-status-bar", Static).update(
+                    Text("Sixel unavailable in current terminal (using HB·Blk; set PYKUAI_SIXEL=1 to force).")
+                )
+                self._ie_last_status_str = ""
+                return
+            play_sfx("click")
+            self.ie_use_sixel = not self.ie_use_sixel
+            if not self.ie_use_sixel:
+                self._clear_sixel_overlay_now()
+            self._ie_cached_frame = None
+            self._ie_last_shot_key = ()
+            self._ie_sixel_last_key = ()
+            self._ie_sixel_force_reblit = True
+            self._sync_ie_browser_viewport()
+            self._sync_view()
+
+        @on(Button.Pressed, "#btn-ie-zoom")
+        def _on_ie_zoom(self) -> None:
+            if self.mode == "xp_ie6":
+                play_sfx("click")
+                self.ie_zoom = 1 if self.ie_zoom >= 4 else self.ie_zoom + 1
+                self._ie_cached_frame = None
+                self._ie_sixel_last_key = ()
+                self._sync_ie_browser_viewport()
+                self._sync_view()
+
+        @on(Button.Pressed, "#btn-ie-pan-up")
+        def _on_pan_up(self) -> None:
+            self._adjust_ie_pan(0.0, -0.15, scroll_fallback=-260)
+
+        @on(Button.Pressed, "#btn-ie-pan-down")
+        def _on_pan_down(self) -> None:
+            self._adjust_ie_pan(0.0, 0.15, scroll_fallback=260)
+
+        @on(Button.Pressed, "#btn-ie-pan-left")
+        def _on_pan_left(self) -> None:
+            self._adjust_ie_pan(-0.15, 0.0)
+
+        @on(Button.Pressed, "#btn-ie-pan-right")
+        def _on_pan_right(self) -> None:
+            self._adjust_ie_pan(0.15, 0.0)
+
+        def _adjust_ie_pan(self, dx: float, dy: float, scroll_fallback: int = 0) -> None:
+            if self.mode != "xp_ie6" or self.ie_view_mode != "view":
+                return
+            play_sfx("click")
+            if self.ie_zoom <= 1 and scroll_fallback and self.ie_session is not None:
+                self.ie_session.dispatch_scroll(scroll_fallback)
+                return
+            self.ie_pan_x = max(0.0, min(1.0, self.ie_pan_x + dx))
+            self.ie_pan_y = max(0.0, min(1.0, self.ie_pan_y + dy))
+            self._ie_cached_frame = None
+            self._ie_sixel_last_key = ()
+            self._sync_ie_browser_viewport()
+            self._sync_view()
+
+        @on(Button.Pressed, "#btn-ie-type-send")
+        def _on_ie_type_send(self) -> None:
+            if self.mode == "xp_ie6" and self.ie_session is not None:
+                in_box = self.query_one("#ie-page-type", Input)
+                txt = in_box.value
+                in_box.value = ""
+                play_sfx("enter")
+                self.set_focus(None)
+                self.ie_session.dispatch_type(txt, press_enter=True)
+
+        @on(Button.Pressed)
+        def _on_dynamic_ie_buttons(self, event: Button.Pressed) -> None:
+            if self.mode != "xp_ie6":
+                return
+            btn = event.button
+            if btn.has_class("ie-bm-btn") or btn.has_class("ie-link-btn"):
+                target = str(btn.name or "").strip()
+                if target:
+                    play_sfx("click")
+                    self.set_focus(None)
+                    self._ie_navigate(target)
+                return
+            if btn.has_class("ie-dom-go-btn"):
+                idx_s = str(btn.name or "0")
+                for dom_in in self.query(".ie-dom-input"):
+                    if isinstance(dom_in, Input) and str(dom_in.name or "0") == idx_s:
+                        self._submit_dom_input_value(int(idx_s), dom_in.value)
+                        return
+
+        @on(Input.Submitted, "#ie-url-input")
+        def _on_url_submitted(self, event: Input.Submitted) -> None:
+            if self.mode == "xp_ie6":
+                play_sfx("enter")
+                self.set_focus(None)
+                self._ie_navigate(event.value)
+
+        @on(Input.Submitted, "#ie-page-type")
+        def _on_page_type_submitted(self, event: Input.Submitted) -> None:
+            if self.mode == "xp_ie6" and self.ie_session is not None:
+                play_sfx("enter")
+                event.input.value = ""
+                self.set_focus(None)
+                self.ie_session.dispatch_type(event.value, press_enter=True)
+
+        @on(Input.Submitted, ".ie-dom-input")
+        def _on_dom_input_submitted(self, event: Input.Submitted) -> None:
+            if self.mode == "xp_ie6":
+                idx = int(event.input.name or "0")
+                self.set_focus(None)
+                self._submit_dom_input_value(idx, event.value)
+
+        def _submit_dom_input_value(self, input_idx: int, text: str) -> None:
+            if self.ie_session is None:
+                return
+            snap = self.ie_session.get_snapshot()
+            play_sfx("enter")
+            if snap.url == ABOUT_HOME_URL:
+                self._ie_navigate(text)
+            else:
+                self.ie_session.submit_dom_input(input_idx, text)
 
         def _on_tick(self) -> None:
             now = time.perf_counter()
@@ -1521,29 +2572,56 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
             if isinstance(self.screen, ModalScreen):
                 return
 
+            if self.mode == "xp_ie6":
+                if self.ie_session is not None:
+                    snap = self.ie_session.get_snapshot()
+                    if snap.seq != self._ie_last_ui_seq:
+                        self._sync_view()
+                    if self.ie_view_mode == "view" and not snap.loading and snap.url != ABOUT_HOME_URL:
+                        self._ie_live_accum += dt
+                        if snap.shot_image is None and self._ie_live_accum >= 0.45:
+                            self._ie_live_accum = 0.0
+                            self.ie_session.request_live_frame()
+                        elif self._ie_live_accum >= 4.0:
+                            self._ie_live_accum = 0.0
+                    else:
+                        self._ie_live_accum = 0.0
+                return
+
+            if self.mode == "xp_desktop":
+                prev_balloon = self.xp.balloon_timer > 0.0
+                self.xp.advance_desktop(dt)
+                now_balloon = self.xp.balloon_timer > 0.0
+                self._desk_idle_accum += dt
+                if (now_balloon != prev_balloon) or self._desk_idle_accum >= 0.45:
+                    self._desk_idle_accum = 0.0
+                    cloud_px = int(self.xp.elapsed * 0.55)
+                    minute = int(time.time() // 60)
+                    if (
+                        now_balloon != prev_balloon
+                        or cloud_px != self._desk_last_cloud_px
+                        or minute != self._desk_last_minute
+                    ):
+                        self._desk_last_cloud_px = cloud_px
+                        self._desk_last_minute = minute
+                        self._sync_view()
+                return
+
+            if now < self._tick_cooldown_until:
+                return
+
+            t_start = time.perf_counter()
             if self.mode == "cutscene":
                 if self.cutscene.advance(dt):
                     self._enter_xp_boot()
                     return
                 self._sync_view()
-                return
-
-            if self.mode == "xp_boot":
+            elif self.mode == "xp_boot":
                 if self.xp.advance_boot(dt):
                     self._enter_xp_desktop()
                     return
                 self._sync_view()
-                return
-
-            if self.mode == "xp_desktop":
-                self.xp.advance_desktop(dt)
-                self._desk_idle_accum += dt
-                if self._desk_idle_accum >= 0.14:
-                    self._desk_idle_accum = 0.0
-                    self._sync_view()
-                return
-
-            if self.hex_engine is not None:
+            elif self.hex_engine is not None:
                 ev = self.hex_engine.advance_frame(dt)
                 if ev == "orb":
                     play_sfx("key")
@@ -1553,14 +2631,43 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
                     play_sfx("paste")
                 elif ev in ("gameover", "victory"):
                     play_sfx("snake" if ev == "victory" else "paste")
+                self._sync_view()
 
-            self._sync_view()
+            render_s = time.perf_counter() - t_start
+            if render_s > 0.024:
+                self._tick_cooldown_until = time.perf_counter() + min(0.085, (render_s - 0.016) * 0.70)
 
         def _sync_view(self) -> None:
             self._desk_idle_accum = 0.0
             vp = self.query_one("#crt-viewport", _CrtCanvas)
             gbar = self.query_one("#xp-game-bar", Horizontal)
             gtitle = self.query_one("#xp-game-title", Static)
+            ie_bar = self.query_one("#xp-ie-bar", Horizontal)
+            ie_tb = self.query_one("#ie-toolbar", Horizontal)
+            ie_tabs = self.query_one("#ie-tabs-bar", Horizontal)
+            ie_ctrl = self.query_one("#ie-view-ctrl", Horizontal)
+            ie_tv = self.query_one("#ie-text-view", VerticalScroll)
+            ie_status = self.query_one("#ie-status-bar", Static)
+
+            url_in = self.query_one("#ie-url-input", Input)
+            page_in = self.query_one("#ie-page-type", Input)
+
+            if self.mode != "xp_desktop":
+                self._xp_last_frame_id = 0
+
+            if self.mode != "xp_ie6":
+                self._clear_sixel_overlay_now()
+                url_in.can_focus = False
+                page_in.can_focus = False
+                if isinstance(self.focused, Input):
+                    self.set_focus(None)
+                ie_bar.display = False
+                ie_tb.display = False
+                ie_tabs.display = False
+                ie_ctrl.display = False
+                ie_tv.display = False
+                ie_status.display = False
+                vp.display = True
 
             if self.mode == "cutscene":
                 gbar.display = False
@@ -1581,7 +2688,162 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
                 vp.set_class(True, "-xp-desktop")
                 vp.set_class(False, "-fault")
                 has_save = _HEX_SAVE_PATH.is_file()
-                vp.update(self.xp.render_desktop(self.pix_w, self.pix_h, icon_selected=self.icon_selected, has_save=has_save))
+                has_bm = bool(self.ie_bookmarks)
+                frame = self.xp.render_desktop(
+                    self.pix_w,
+                    self.pix_h,
+                    selected_idx=self.selected_icon,
+                    has_save=has_save,
+                    has_bookmarks=has_bm,
+                )
+                fid = id(frame)
+                if fid != self._xp_last_frame_id:
+                    self._xp_last_frame_id = fid
+                    vp.update(frame)
+                return
+
+            if self.mode == "xp_ie6":
+                url_in.can_focus = True
+                page_in.can_focus = self.ie_view_mode == "view"
+                gbar.display = False
+                ie_bar.display = True
+                ie_tb.display = True
+                ie_tabs.display = True
+                ie_status.display = True
+                vp.set_class(True, "-xp-desktop")
+                vp.set_class(False, "-fault")
+
+                snap = (
+                    self.ie_session.get_snapshot()
+                    if self.ie_session is not None
+                    else PageSnapshot()
+                )
+                self._ie_last_ui_seq = snap.seq
+                title_str = f" e  Microsoft Internet Explorer - {snap.title[:54]}"
+                if title_str != self._ie_last_title_str:
+                    self._ie_last_title_str = title_str
+                    self.query_one("#xp-ie-title", Static).update(Text(title_str))
+                display_url = "" if snap.url == ABOUT_HOME_URL else snap.url
+                if not url_in.has_focus and display_url != self._ie_synced_url:
+                    self._ie_synced_url = display_url
+                    if url_in.value != display_url:
+                        url_in.value = display_url
+
+                btn_text = self.query_one("#btn-ie-mode-text", Button)
+                btn_view = self.query_one("#btn-ie-mode-view", Button)
+                btn_gfx = self.query_one("#btn-ie-gfx", Button)
+                sixel_pref = self._is_sixel_preferred()
+                btn_text.set_class(self.ie_view_mode == "text", "-active")
+                btn_view.set_class(self.ie_view_mode == "view", "-active")
+                btn_gfx.label = "HD·Six" if sixel_pref else "HB·Blk"
+                btn_gfx.set_class(sixel_pref, "-on")
+                self.query_one("#btn-ie-zoom", Button).label = f"🔍 {self.ie_zoom}x"
+                self._rebuild_ie_tabs(snap.url)
+
+                if self.ie_view_mode == "text":
+                    mode_tag = "Txt"
+                elif sixel_pref and snap.url != ABOUT_HOME_URL and snap.shot_image is not None:
+                    mode_tag = f"Sixel HD {self.ie_zoom}x"
+                elif sixel_pref:
+                    mode_tag = "Sixel Ready"
+                else:
+                    mode_tag = f"HB·Blk {self.ie_zoom}x"
+                status_str = f"{snap.status_text}  [{mode_tag}]"
+                if status_str != self._ie_last_status_str:
+                    self._ie_last_status_str = status_str
+                    ie_status.update(Text(status_str))
+
+                if self.ie_view_mode == "text":
+                    self._clear_sixel_overlay_now()
+                    ie_ctrl.display = False
+                    vp.display = False
+                    ie_tv.display = True
+                    if snap.seq != self._ie_last_text_seq:
+                        self._ie_last_text_seq = snap.seq
+                        self._rebuild_ie_text_pane(snap)
+                else:
+                    ie_tv.display = False
+                    ie_ctrl.display = True
+                    vp.display = True
+                    target_w, target_h = self._sync_ie_browser_viewport()
+                    if sixel_pref and snap.url != ABOUT_HOME_URL and snap.shot_image is not None:
+                        want_sixel_w = max(80, int(target_w))
+                        want_sixel_h = max(24, (int(target_h) // 6) * 6)
+                        want_cfg_key = (
+                            want_sixel_w,
+                            want_sixel_h,
+                            max(1, min(4, int(self.ie_zoom))),
+                            round(float(self.ie_pan_x), 4),
+                            round(float(self.ie_pan_y), 4),
+                            snap.url,
+                        )
+                        payload_ready = bool(snap.sixel_payload) and (snap.sixel_key == want_cfg_key)
+                        blit_key = (snap.sixel_shot_seq, *want_cfg_key)
+                        payload_updated = False
+                        if payload_ready and blit_key != self._ie_sixel_last_key:
+                            self._ie_sixel_last_key = blit_key
+                            self._ie_sixel_payload = snap.sixel_payload
+                            self._ie_sixel_size = snap.sixel_size
+                            self._ie_crop_bounds = snap.sixel_bounds
+                            payload_updated = True
+                        was_sixel_active = self._ie_sixel_active_view
+                        self._ie_sixel_active_view = True
+                        need_blank_repaint = (not was_sixel_active) or (
+                            self._ie_blank_dims != (self.ie_cols, self.ie_rows)
+                        )
+                        if need_blank_repaint:
+                            self._ie_last_shot_key = ()
+                            self._ie_sixel_force_reblit = True
+                            vp.update(self._get_ie_blank_frame(self.ie_cols, self.ie_rows))
+                        elif (
+                            not isinstance(self.screen, ModalScreen)
+                            and self._ie_sixel_payload
+                            and (
+                                payload_updated
+                                or self._ie_sixel_drawn_box is None
+                                or self._ie_sixel_force_reblit
+                            )
+                        ):
+                            self._blit_sixel_overlay()
+                    else:
+                        self._clear_sixel_overlay_now()
+                        bm_sig = (
+                            tuple((b["label"], b["url"]) for b in self.ie_bookmarks)
+                            if snap.url == ABOUT_HOME_URL
+                            else ()
+                        )
+                        shot_key = (
+                            snap.shot_seq,
+                            self.ie_cols,
+                            self.ie_rows,
+                            self.ie_zoom,
+                            self.ie_pan_x,
+                            self.ie_pan_y,
+                            snap.url,
+                            bm_sig,
+                        )
+                        hb_dirty = (shot_key != self._ie_last_shot_key) or (self._ie_cached_frame is None)
+                        if hb_dirty:
+                            self._ie_last_shot_key = shot_key
+                            if snap.url == ABOUT_HOME_URL or snap.shot_image is None:
+                                self._ie_crop_bounds = (0.0, 0.0, 1.0, 1.0)
+                                self._ie_cached_frame = render_home_pixel_canvas(
+                                    self.ie_cols,
+                                    self.ie_rows,
+                                    self.ie_bookmarks,
+                                )
+                            else:
+                                frame, bounds = render_image_to_halfblock(
+                                    snap.shot_image,
+                                    self.ie_cols,
+                                    self.ie_rows,
+                                    zoom=self.ie_zoom,
+                                    pan_x=self.ie_pan_x,
+                                    pan_y=self.ie_pan_y,
+                                )
+                                self._ie_crop_bounds = bounds
+                                self._ie_cached_frame = frame
+                            vp.update(self._ie_cached_frame)
                 return
 
             # In-CRT Active Gameplay (`xp_playing`)
@@ -1598,10 +2860,81 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
             vp.update(e.render_frame(self.pix_w, self.pix_h))
             vp.set_class(e.left_fault_ticks > 0 or e.phase == "gameover", "-fault")
 
-        # ── Keyboard Actions ──
+        # ── Keyboard Actions & Native IE6 Key/Paste Forwarding ──
+
+        _IE_SPECIAL_KEY_MAP: ClassVar[dict[str, tuple[str, str, int]]] = {
+            "enter": ("Enter", "Enter", 13),
+            "return": ("Enter", "Enter", 13),
+            "backspace": ("Backspace", "Backspace", 8),
+            "tab": ("Tab", "Tab", 9),
+            "delete": ("Delete", "Delete", 46),
+            "home": ("Home", "Home", 36),
+            "end": ("End", "End", 35),
+            "pageup": ("PageUp", "PageUp", 33),
+            "pagedown": ("PageDown", "PageDown", 34),
+            "space": (" ", "Space", 32),
+        }
+
+        def on_key(self, event: events.Key) -> None:
+            if (
+                self.mode != "xp_ie6"
+                or self.ie_view_mode != "view"
+                or self.ie_session is None
+                or isinstance(self.screen, ModalScreen)
+                or isinstance(self.focused, Input)
+            ):
+                return
+            snap = self.ie_session.get_snapshot()
+            ch = event.character
+            if snap.url == ABOUT_HOME_URL:
+                if ch and len(ch) == 1 and ord(ch) >= 32:
+                    url_in = self.query_one("#ie-url-input", Input)
+                    self.set_focus(url_in)
+                    url_in.insert_text_at_cursor(ch)
+                    event.stop()
+                return
+            mapped = self._IE_SPECIAL_KEY_MAP.get(event.key)
+            if mapped is not None:
+                key_name, code, vk = mapped
+                self.ie_session.dispatch_key(key_name, code, vk)
+                event.stop()
+                return
+            if ch and len(ch) == 1 and ord(ch) >= 32:
+                self.ie_session.dispatch_type(ch, press_enter=False)
+                event.stop()
+
+        def on_paste(self, event: events.Paste) -> None:
+            if (
+                self.mode == "xp_ie6"
+                and self.ie_view_mode == "view"
+                and self.ie_session is not None
+                and not isinstance(self.screen, ModalScreen)
+                and not isinstance(self.focused, Input)
+                and event.text
+            ):
+                self.ie_session.dispatch_type(event.text, press_enter=False)
+                event.stop()
+
+        def action_help_shortcut(self) -> None:
+            self.action_show_help()
+
+        def action_wasd_right(self) -> None:
+            self.action_key_right()
+
+        def action_wasd_left(self) -> None:
+            self.action_key_left()
+
+        def action_wasd_up(self) -> None:
+            self.action_key_up()
+
+        def action_wasd_down(self) -> None:
+            self.action_key_down()
+
+        def action_quit_key(self) -> None:
+            self.action_back_or_exit()
 
         def action_primary_action(self) -> None:
-            if isinstance(self.screen, ModalScreen):
+            if isinstance(self.screen, ModalScreen) or isinstance(self.focused, Input):
                 return
             if self.mode == "cutscene":
                 play_sfx("enter")
@@ -1610,14 +2943,17 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
                 play_sfx("enter")
                 self._enter_xp_desktop()
             elif self.mode == "xp_desktop":
-                self._boot_hex3d()
+                if self.selected_icon == 0:
+                    self._boot_hex3d()
+                else:
+                    self._boot_ie6()
             elif self.mode == "xp_playing" and self.hex_engine is not None:
                 self.hex_engine.start_if_intro()
                 play_sfx("enter")
                 self._sync_view()
 
         def action_space_action(self) -> None:
-            if isinstance(self.screen, ModalScreen):
+            if isinstance(self.screen, ModalScreen) or isinstance(self.focused, Input):
                 return
             if self.mode == "cutscene":
                 play_sfx("enter")
@@ -1628,7 +2964,16 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
                 self._enter_xp_desktop()
                 return
             if self.mode == "xp_desktop":
-                self._boot_hex3d()
+                if self.selected_icon == 0:
+                    self._boot_hex3d()
+                else:
+                    self._boot_ie6()
+                return
+            if self.mode == "xp_ie6":
+                if self.ie_view_mode == "text":
+                    self._on_ie_mode_view()
+                else:
+                    self._on_ie_mode_text()
                 return
             if self.hex_engine is not None:
                 if self.hex_engine.phase == "intro":
@@ -1644,21 +2989,41 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
             self._sync_view()
 
         def action_key_right(self) -> None:
-            if isinstance(self.screen, ModalScreen) or self.mode != "xp_playing" or self.hex_engine is None:
+            if isinstance(self.screen, ModalScreen) or isinstance(self.focused, Input):
+                return
+            if self.mode == "xp_ie6" and self.ie_view_mode == "view":
+                self._adjust_ie_pan(0.15, 0.0)
+                return
+            if self.mode != "xp_playing" or self.hex_engine is None:
                 return
             fb = self.hex_engine.input_turn_right()
             play_sfx("enter" if fb == "start" else "click")
             self._sync_view()
 
         def action_key_left(self) -> None:
-            if isinstance(self.screen, ModalScreen) or self.mode != "xp_playing" or self.hex_engine is None:
+            if isinstance(self.screen, ModalScreen) or isinstance(self.focused, Input):
+                return
+            if self.mode == "xp_ie6" and self.ie_view_mode == "view":
+                self._adjust_ie_pan(-0.15, 0.0)
+                return
+            if self.mode != "xp_playing" or self.hex_engine is None:
                 return
             self.hex_engine.input_turn_left_fault()
             play_sfx("paste")
             self._sync_view()
 
         def action_key_up(self) -> None:
-            if isinstance(self.screen, ModalScreen) or self.mode != "xp_playing" or self.hex_engine is None:
+            if isinstance(self.screen, ModalScreen) or isinstance(self.focused, Input):
+                return
+            if self.mode == "xp_desktop":
+                self.selected_icon = (self.selected_icon - 1) % 2
+                play_sfx("click")
+                self._sync_view()
+                return
+            if self.mode == "xp_ie6" and self.ie_view_mode == "view":
+                self._adjust_ie_pan(0.0, -0.15, scroll_fallback=-260)
+                return
+            if self.mode != "xp_playing" or self.hex_engine is None:
                 return
             ev = self.hex_engine.input_quick_step()
             if ev == "orb":
@@ -1667,8 +3032,24 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
                 play_sfx("enter")
             self._sync_view()
 
+        def action_key_down(self) -> None:
+            if isinstance(self.screen, ModalScreen) or isinstance(self.focused, Input):
+                return
+            if self.mode == "xp_desktop":
+                self.selected_icon = (self.selected_icon + 1) % 2
+                play_sfx("click")
+                self._sync_view()
+                return
+            if self.mode == "xp_ie6" and self.ie_view_mode == "view":
+                self._adjust_ie_pan(0.0, 0.15, scroll_fallback=260)
+
         def action_save_game_state(self) -> None:
-            if isinstance(self.screen, ModalScreen) or self.mode != "xp_playing" or self.hex_engine is None:
+            if isinstance(self.screen, ModalScreen) or isinstance(self.focused, Input):
+                return
+            if self.mode == "xp_ie6":
+                self._on_ie_save_bm()
+                return
+            if self.mode != "xp_playing" or self.hex_engine is None:
                 return
             self._persist_hex_state()
             self.hex_engine.status_line = f"Saved HEX 3D · Stage {self.hex_engine.stage_idx + 1} · Score {self.hex_engine.score}"
@@ -1676,7 +3057,7 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
             self._sync_view()
 
         def action_load_game_state(self) -> None:
-            if isinstance(self.screen, ModalScreen):
+            if isinstance(self.screen, ModalScreen) or isinstance(self.focused, Input):
                 return
             raw, summary = _load_hex_meta()
             if not raw:
@@ -1700,7 +3081,13 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
             self._sync_view()
 
         def action_restart_game(self) -> None:
-            if isinstance(self.screen, ModalScreen) or self.mode != "xp_playing" or self.hex_engine is None:
+            if isinstance(self.screen, ModalScreen) or isinstance(self.focused, Input):
+                return
+            if self.mode == "xp_ie6" and self.ie_session is not None:
+                play_sfx("click")
+                self.ie_session.reload()
+                return
+            if self.mode != "xp_playing" or self.hex_engine is None:
                 return
             play_sfx("snake")
             record_high_score("hex", self.hex_engine.score)
@@ -1708,7 +3095,7 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
             self._sync_view()
 
         def action_pause_game(self) -> None:
-            if isinstance(self.screen, ModalScreen):
+            if isinstance(self.screen, ModalScreen) or isinstance(self.focused, Input):
                 return
             if self.mode == "xp_playing":
                 self.action_space_action()
@@ -1717,10 +3104,19 @@ def build_arcade_room_app(auto_boot_hex: bool = False, skip_cutscene: bool = Fal
             if isinstance(self.screen, HelpModalScreen):
                 self.screen.action_dismiss_help()
                 return
+            if isinstance(self.focused, Input):
+                self.set_focus(None)
+                return
             if self.mode == "xp_playing":
                 self._close_game_to_xp_desktop()
                 return
+            if self.mode == "xp_ie6":
+                self._close_ie6_to_xp_desktop()
+                return
             play_sfx("click")
+            if self.ie_session is not None:
+                self.ie_session.close()
+                self.ie_session = None
             self.hex_engine = None
             self.exit(0)
 

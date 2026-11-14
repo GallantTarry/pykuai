@@ -16,6 +16,7 @@ import time
 from typing import Optional
 
 from rich.console import Console
+from rich.style import Style
 from rich.text import Text
 
 from pykuai.arcade import ArcadeGame, get_high_score, record_high_score
@@ -211,9 +212,9 @@ def _solve_quad_cell(c0: int, c1: int, c2: int, c3: int) -> tuple[str, int, int]
     return QUAD_CHARS[mask], fg_i, bg_i
 
 
-_STYLE_PAIR_CACHE: dict[tuple[int, int], str] = {}
-_STYLE_SOLID_CACHE: dict[int, str] = {}
-_VOID_STYLE = f"on {VOID_HEX}"
+_STYLE_PAIR_CACHE: dict[tuple[int, int], Style] = {}
+_STYLE_SOLID_CACHE: dict[int, Style] = {}
+_VOID_STYLE = Style(bgcolor=VOID_HEX)
 
 
 def _pack_quadrant_buffer(pbuf: list[int], width: int, height: int) -> Text:
@@ -233,7 +234,7 @@ def _pack_quadrant_buffer(pbuf: list[int], width: int, height: int) -> Text:
         top_off = (cy_i * 2) * width
         bot_off = top_off + width
         run_chars: list[str] = []
-        run_style: Optional[str] = None
+        run_style: Optional[Style] = None
 
         for cx_i in range(cols_out):
             sx_base = cx_i * 2
@@ -250,7 +251,7 @@ def _pack_quadrant_buffer(pbuf: list[int], width: int, height: int) -> Text:
                     ch = "█"
                     style = solid_cache.get(c0)
                     if style is None:
-                        style = f"{_int_to_hex(c0)} on {VOID_HEX}"
+                        style = Style(color=_int_to_hex(c0), bgcolor=VOID_HEX)
                         if len(solid_cache) < 8192:
                             solid_cache[c0] = style
             else:
@@ -276,7 +277,7 @@ def _pack_quadrant_buffer(pbuf: list[int], width: int, height: int) -> Text:
                     key = (fg_i, bg_i)
                     style = pair_cache.get(key)
                     if style is None:
-                        style = f"{_int_to_hex(fg_i)} on {_int_to_hex(bg_i)}"
+                        style = Style(color=_int_to_hex(fg_i), bgcolor=_int_to_hex(bg_i))
                         if len(pair_cache) < 16384:
                             pair_cache[key] = style
                 else:
@@ -286,25 +287,25 @@ def _pack_quadrant_buffer(pbuf: list[int], width: int, height: int) -> Text:
                     elif ch == "█":
                         style = solid_cache.get(fg_s)
                         if style is None:
-                            style = f"{_int_to_hex(fg_s)} on {VOID_HEX}"
+                            style = Style(color=_int_to_hex(fg_s), bgcolor=VOID_HEX)
                             if len(solid_cache) < 8192:
                                 solid_cache[fg_s] = style
                     else:
                         key = (fg_s, bg_s)
                         style = pair_cache.get(key)
                         if style is None:
-                            style = f"{_int_to_hex(fg_s)} on {_int_to_hex(bg_s)}"
+                            style = Style(color=_int_to_hex(fg_s), bgcolor=_int_to_hex(bg_s))
                             if len(pair_cache) < 16384:
                                 pair_cache[key] = style
 
             if style != run_style:
                 if run_chars:
-                    append("".join(run_chars), style=run_style or "")
+                    append("".join(run_chars), style=run_style)
                     run_chars.clear()
                 run_style = style
             run_chars.append(ch)
         if run_chars:
-            append("".join(run_chars), style=run_style or "")
+            append("".join(run_chars), style=run_style)
             run_chars.clear()
         if cy_i + 1 < rows_out:
             append("\n")

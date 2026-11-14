@@ -98,6 +98,7 @@ def run_xp_playground(
             return game.run(console)
 
     from pykuai.core.tui import is_interactive_tty
+    from pykuai.arcade.ie6 import get_cached_terminal_sixel_info
 
     if not is_interactive_tty():
         if auto_boot_hex:
@@ -106,6 +107,7 @@ def run_xp_playground(
             print_xp_table(console)
         return 0
 
+    get_cached_terminal_sixel_info()
     res = build_arcade_room_app(auto_boot_hex=auto_boot_hex).run(mouse=True)
     return 0 if res is None else int(res)
 

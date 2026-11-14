@@ -48,7 +48,7 @@ def load_all_games(force_reload: bool = False) -> dict[str, ArcadeGame]:
     seen_codes: set[str] = set()
 
     for file_path in sorted(arcade_dir.glob("*.py")):
-        if file_path.name.startswith("__") or file_path.stem in {"launcher", "room3d"}:
+        if file_path.name.startswith("__") or file_path.stem in {"launcher", "room3d", "ie6"}:
             continue
 
         module_name = f"pykuai.arcade.{file_path.stem}"
