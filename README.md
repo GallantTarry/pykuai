@@ -1,4 +1,4 @@
-English | [简体中文](https://github.com/GallantTarry/pykuai/blob/main/README.zh-CN.md)
+English | [简体中文](README.zh-CN.md)
 
 # 🐍 PyKuai (v1.2.8) — Open-Source CS & Developer Script Toolbox(may be console)
 
@@ -16,7 +16,55 @@ English | [简体中文](https://github.com/GallantTarry/pykuai/blob/main/README
   * **Doubled 2-letter global commands** (`tt`, `pp`, `xp`, `cc`) plus `help` / `gg` deliver instant muscle-memory navigation across the REPL console.
   * **3-letter tool engines** (`ifc`, `ytd`, ...) keep every utility isolated behind clean, collision-free namespaces.
 * **Dual-Mode Execution & In-App Guides**: Run every engine either interactively through mouse-clickable **Rich / Textual** Cyber-Dark Studios (press `?` or `F1`, or click `?` in the top-right corner, for a full in-app feature guide) or headlessly via direct CLI flags in automation scripts.
+* **Virtual CRT XP Playground (`xp`)**: Launches a 3D bedroom-to-PC cutscene into a simulated Windows XP Bliss desktop with `HEX 3D` and a Chromium/Edge CDP-backed **IE 6 Real Browser** supporting live **Sixel HD** true-pixel terminal projection.
 * **Cyber-Dark Tactile Experience**: Features an ASCII banner, an optional high-DPI desktop pixel-snake launch sequence (`--fast` to skip), Windows Terminal title/icon protection, drag-and-drop image routing, and toggleable retro CC0 arcade sound effects persisted in `~/.pykuai/settings.json`.
+
+---
+
+## 🔄 Architecture & Data Flow
+
+```mermaid
+flowchart TD
+    subgraph S1["1. Entry & Micro-Kernel Dispatch"]
+        User["User Terminal / REPL / Direct CLI"] -->|"Launch pykuai or subcommand"| CLI["cli.py Main Dispatcher & REPL"]
+        CLI -->|"Startup animation + guard"| CoreUX["intro.py / watchdog.py / audio.py"]
+        CLI -->|"Auto-scan 3-letter modules"| Reg["registry.py 3-Letter Engine Loader"]
+    end
+
+    subgraph S2["2. Studio, Tool Engines & Package Manager"]
+        Reg -->|"tt interactive tray / CLI args"| TUI["tui.py & tray.py Cyber-Dark Studio"]
+        TUI -->|"Image drop / studio / flags"| IFC["engines/ifc.py Pillow + UnsharpMask"]
+        TUI -->|"Stream query / auth / mux"| YTD["engines/ytd.py yt-dlp + FFmpeg"]
+        CLI -->|"pp AST & pyproject audit"| Deps["core/deps.py Dependency Manager"]
+        YTD -.->|"Cookie lock fallback"| Auth["core/yt_auth.py Isolated Chromium Login"]
+    end
+
+    subgraph S3["3. XP Playground CRT & IE 6 Sixel Pipeline"]
+        CLI -->|"xp / xp hex"| Room["arcade/room3d.py 3D Intro + XP CRT App"]
+        Room -->|"Built-in broken-left game"| Hex["arcade/hex3d.py Quadrant 3D Hex"]
+        Room -->|"Local Edge/Chrome CDP + sys proxy"| IE6["arcade/ie6.py Page.startScreencast"]
+        IE6 -->|"CSI 16t / DA1 + numpy P2=1 Sixel"| Blit["Atomic VT Sync Compositor"]
+        IE6 -.->|"Non-Sixel terminal / Text toggle"| HB["Half-Block & Txt Reader Mode"]
+    end
+
+    subgraph S4["4. Outputs & Persistent User State"]
+        IFC --> OutFiles["Converted Images & Multi-Layer ICO"]
+        YTD --> OutMedia["Merged MP4 / MP3 / Subtitles"]
+        Room --> LocalState["~/.pykuai/settings.json & ie6_bookmarks.json"]
+        Auth --> Cookies["~/.pykuai/cookies.txt & yt-session"]
+    end
+```
+
+---
+
+## ⚙️ End-to-End Flow & Core Technologies
+
+| Stage | Data Flow | Core Technologies | What It Does |
+| :--- | :--- | :--- | :--- |
+| **1. CLI & REPL Runtime** | Terminal input → [`cli.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/cli.py) → [`registry.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/registry.py) / [`tray.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tray.py) | `Win32 ReadConsoleInputW`, `SGR Mouse`, `Rich`, regex `^[a-z]{3}$` reflection | Renders the startup pixel-snake intro and ASCII banner, intercepts raw keyboard/mouse/paste events with retro WAV SFX, and routes 2-letter global commands or 3-letter engines dynamically. |
+| **2. Tool Engines & Toolchain** | [`tray.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tray.py) / CLI → [`ifc.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ifc.py) / [`ytd.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ytd.py) / [`deps.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/deps.py) | `Pillow`, `UnsharpMask`, `yt-dlp`, `FFmpeg`, SHA256 verification, isolated Chromium cookies | Converts images and packs multi-layer `.ico` atomically, downloads/muxes media via isolated Chromium session cookies when gated, and resolves/installs FFmpeg and `pyproject.toml` dependencies. |
+| **3. XP CRT & Virtual Desktop** | [`launcher.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/launcher.py) → [`room3d.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/room3d.py) → [`hex3d.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/hex3d.py) | `Textual`, 2x2 Quadrant Sub-Pixel Canvas, Synthesized E-flat Startup Chime | Plays a 3D bedroom-to-monitor cutscene, boots an interactive Windows XP `Bliss` desktop with Start/Off menu, and runs `HEX 3D` and IE 6 inside the terminal frame. |
+| **4. Native IE 6 & Sixel HD Projection** | [`room3d.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/room3d.py) ↔ [`ie6.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/ie6.py) ↔ Local Edge/Chrome ↔ Terminal | `CDP WebSocket` (`Page.startScreencast`), `CSI 16t` / `DA1`, `numpy` `P2=1` Sixel, `\x1b[?2026h` Sync Output, `DECSCUSR` | Streams live viewport frames asynchronously, suppresses idle caret-blink redraws, atomically composites Sixel + UI without black flashes, and anchors the thin-bar IME cursor on clicked webpage coordinates. |
 
 ---
 
@@ -27,15 +75,21 @@ pykuai/
 ├── .github/
 │   └── workflows/
 │       └── publish.yml         # GitHub Actions Trusted Publishing workflow for PyPI
-├── pyproject.toml              # Package metadata, optional extras & pykuai CLI entrypoint
+├── pyproject.toml              # Package metadata, core deps (incl. numpy), extras & CLI entrypoint
 ├── README.md                   # English documentation (GitHub homepage & PyPI)
-├── README.zh-CN.md             # Chinese documentation (简体中文详细说明文档)
+├── README.zh-CN.md             # Chinese documentation (简体中文同步文档)
 ├── .gitignore                  # Git ignore rules (caches, builds, heavy binaries & temp outputs)
 ├── .backup_engines/            # Historical archive of 10 pre-refactor scripts (not loaded at runtime)
 └── pykuai/                     # Core Python package
     ├── __init__.py             # Version (1.2.8) & author metadata
     ├── __main__.py             # python -m pykuai module entrypoint
     ├── cli.py                  # Main dispatcher (interactive REPL & direct CLI modes)
+    ├── arcade/                 # XP Playground 3D CRT, mini-games & IE 6 real browser
+    │   ├── __init__.py         # ArcadeGame plugin registry (~/.pykuai/settings.json scores)
+    │   ├── launcher.py         # xp entry launcher & game summary table printer
+    │   ├── hex3d.py            # hex: Built-in multicolored 3D Hex & Spotted Snake mini-game
+    │   ├── room3d.py           # 3D cutscene, XP Bliss desktop, atomic VT Sixel compositor & IME anchor
+    │   └── ie6.py              # Native IE 6 engine (Edge/Chrome CDP screencast, Sixel P2=1 & HB fallback)
     ├── core/                   # Micro-kernel infrastructure
     │   ├── __init__.py         # Core package marker
     │   ├── audio.py            # Non-blocking CC0 retro SFX player & persistent settings
@@ -72,7 +126,7 @@ pykuai/
 ### Module Breakdown
 
 1. **Root Configuration, CI & Archive**
-   * **[pyproject.toml](https://github.com/GallantTarry/pykuai/blob/main/pyproject.toml)**: Defines package metadata (`1.2.8`, Python `>=3.9`), core dependencies (`rich`, `textual`, `openpyxl`, `Pillow`, `pypdf`), optional extras (`office`, `media`, `cv`, `archive`, `ui`, `all`), package data (`tools/*`, `assets/*`, `assets/sfx/*`), and the `pykuai` console entrypoint.
+   * **[pyproject.toml](https://github.com/GallantTarry/pykuai/blob/main/pyproject.toml)**: Defines package metadata (`1.2.8`, Python `>=3.9`), core dependencies (`rich`, `textual`, `openpyxl`, `Pillow`, `pypdf`, `numpy`), optional extras (`office`, `media`, `cv`, `archive`, `ui`, `all`), package data (`tools/*`, `assets/*`, `assets/sfx/*`), and the `pykuai` console entrypoint.
    * **[.github/workflows/publish.yml](https://github.com/GallantTarry/pykuai/blob/main/.github/workflows/publish.yml)**: Passwordless PyPI Trusted Publishing pipeline (OIDC) triggered on `v*` / `pykuaiv*` tags or manual `workflow_dispatch`.
    * **[.backup_engines/](https://github.com/GallantTarry/pykuai/tree/main/.backup_engines)**: Reference archive of 10 pre-refactor standalone scripts (`archive.py`, `excel_merge.py`, `excel_split.py`, `img_compress.py`, `media_fetch.py`, `office_fixed.py`, `pdf_split.py`, `scanner.py`, `video_compress.py`, `web_sniffer.py`). Never loaded by `registry.py`.
 
@@ -84,7 +138,11 @@ pykuai/
    * **[tools.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tools.py)** & **[yt_auth.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/yt_auth.py)**: Resolves external tools (`ffmpeg`, `ffprobe`, `yt-dlp`, `UnRAR`, Node/Deno JS runtimes) across bundled `tools/`, system `PATH`, and `~/.pykuai/tools/`, downloads & SHA256-verifies Windows `FFmpeg`/`FFprobe` essentials on demand (`urllib` + `curl`/direct fallback), and drives the extension-free isolated browser YouTube login flow (`~/.pykuai/yt-session` → `~/.pykuai/cookies.txt`).
    * **[intro.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/intro.py)** & **[watchdog.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/watchdog.py)**: Plays the high-DPI desktop pixel-snake launch animation (`snake.wav`) and safely restores Windows Terminal title/icon state on exit.
 
-3. **Built-In Engines (`pykuai/engines/`)**
+3. **XP Playground CRT & Real Browser (`pykuai/arcade/`)**
+   * **[launcher.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/launcher.py)** & **[hex3d.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/hex3d.py)**: Launches the `xp` experience (`xp`, `xp hex`, `xp help`) and renders the built-in `HEX 3D` game (`hex`) on a 2x2 sub-pixel canvas.
+   * **[room3d.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/room3d.py)** & **[ie6.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/ie6.py)**: Renders the 3D cutscene and Windows XP Bliss desktop, runs local Edge/Chrome over CDP (`Page.startScreencast`) with system proxy inheritance and streamlined native IE 6 chrome, projects real-time **Sixel HD** (`P2=1`, `numpy` quantized palette) or TrueColor Half-Block frames inside the CRT, eliminates focus-blur black flashes with atomic `\x1b[?2026h...\x1b[?2026l` compositing, and anchors the visible thin-bar cursor onto clicked webpage coordinates for accurate IME input.
+
+4. **Built-In Engines (`pykuai/engines/`)**
    * **[ifc.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ifc.py)** (`ifc` — *Image Format Converter*)
    * **[ytd.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ytd.py)** (`ytd` — *YouTube Download*)
 
@@ -106,7 +164,7 @@ pykuai/
 
 ---
 
-## 🚀 Dual-Mode Usage & Global Commands
+## 🚀 Usage & Global Commands
 
 ### 1. Interactive Console Mode (REPL)
 
@@ -124,7 +182,7 @@ Inside the console, use the core commands (`help` prints the table, `gg` quits, 
 | :--- | :--- | :--- |
 | `tt` | **Tool Tray** | Open the interactive Tool Tray, or run `tt <tool> [args]` |
 | `pp` | **Pull Packages** | Audit and install/upgrade plugin dependencies (`pp --check` / `pp -y` / `pp -U`) |
-| `xp` | **XP Playground** | Launch the 3D cutscene & virtual Windows XP CRT playground (`HEX 3D`) |
+| `xp` | **XP Playground** | Launch the 3D cutscene & virtual Windows XP CRT (`HEX 3D` & `IE 6` browser) |
 | `cc` | **Clear Console** | Clear the screen and redraw the Cyber-Dark banner |
 
 > 💡 **Pro Tip**: Dragging or pasting an image file path straight into the REPL prompt automatically opens `ifc` pre-loaded with that image.
@@ -159,30 +217,7 @@ pykuai xp
 pykuai --version
 ```
 
----
-
-## 🛠️ Installation & Development Setup
-
-Install directly from PyPI or in editable mode from source:
-
-```bash
-# Core workbench from PyPI
-pip install pykuai
-
-# With optional media download tools or full extras
-pip install "pykuai[media]"
-pip install "pykuai[all]"
-
-# Local editable install for development
-git clone https://github.com/GallantTarry/pykuai.git
-cd pykuai
-pip install -e .
-pip install -e ".[all]"
-```
-
-Once installed, launch from anywhere using `pykuai` or `python -m pykuai`.
-
-> **Note on External Binaries**: Git and PyPI distributions stay lightweight (~30 MiB) by bundling `yt-dlp.exe`, `UnRAR.exe`, and `zpix.ttf` without heavy FFmpeg binaries. On Windows, if `ffmpeg` / `ffprobe` are not already on `PATH` or in `~/.pykuai/tools/`, `ytd` automatically prompts to download and SHA256-verify official FFmpeg essentials into `~/.pykuai/tools/` (or run `pykuai tt ytd --install-ffmpeg`).
+> **Note on External Binaries**: Git and PyPI distributions stay lightweight by bundling `yt-dlp.exe`, `UnRAR.exe`, and `zpix.ttf` without heavy FFmpeg binaries. On Windows, if `ffmpeg` / `ffprobe` are not already on `PATH` or in `~/.pykuai/tools/`, `ytd` automatically prompts to download and SHA256-verify official FFmpeg essentials into `~/.pykuai/tools/` (or run `pykuai tt ytd --install-ffmpeg`).
 
 ---
 
@@ -229,9 +264,11 @@ Restart `pykuai`—no core edits or manual registration needed. `pdf` appears im
 
 ## ✨ What's New in v1.2.8
 
-* **XP Playground (`xp`)**: Redesigned the arcade experience as `xp`, featuring a 3D bedroom-to-PC intro leading into a minimalist Windows XP Bliss desktop with `HEX 3D` and a focused `START` -> `OFF` shutdown menu.
-* **Home Banner & Clickable Global `SFX` Toggle**: Placed author/version details alongside the `PYKUAI` banner, added a mouse-clickable `SFX ON` / `SFX OFF` sound toggle, and simplified REPL navigation to `xp`, `help`, and `gg`.
-* **Visual & Input Fixes**: Eliminated unwanted blue click-selection stripes in the `xp` desktop view and trimmed extra chrome bars.
+* **XP Playground (`xp`)**: Redesigned the arcade experience as `xp`, featuring a 3D bedroom-to-PC intro leading into a minimalist Windows XP Bliss desktop with `HEX 3D`, a focused `START` -> `OFF` shutdown menu, incremental desktop refreshes, and one-click app launch.
+* **Built-In Native IE 6 Real Browser ([`ie6.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/ie6.py))**: Added an embedded Chromium/Edge CDP browser inside the XP CRT (`Page.startScreencast`), supporting direct URL & domain navigation (never hijacking addresses to third-party portals), automatic local system proxy inheritance, user bookmarks (`~/.pykuai/ie6_bookmarks.json`), and seamless `View` / `Txt` reading-mode toggling.
+* **True-Pixel Sixel HD Projection & Fast `numpy` Pipeline**: Added terminal cell detection (`CSI 16t` / `DA1`) and off-main-thread `numpy`-vectorized `128`-color Sixel (`P2=1`) streaming inside supported terminals (e.g., Windows Terminal) with automatic 24-bit TrueColor Half-Block (`▀`) fallback—and promoted `numpy>=1.24.0` to core dependencies in `pyproject.toml`.
+* **Zero-Flash Compositing, Native IME Anchoring & Streamlined Chrome**: Synced Textual UI + Sixel frames atomically via `\x1b[?2026h ... \x1b[?2026l`, stripped focus-blur interior overwrites and idle caret-blink jitter, anchored the terminal cursor onto clicked webpage coordinates so Chinese/OS IME popups follow webpage inputs cleanly instead of sticking behind `Addr` or drifting outside PowerShell, removed redundant view-control buttons, and auto-hid empty bookmark bars.
+* **Home Banner & Global `SFX` Polish**: Placed author/version details alongside the `PYKUAI` banner, added a mouse-clickable `🔊 SFX ON / 🔇 SFX OFF` sound toggle, simplified REPL navigation to `xp`, `help`, and `gg`, and eliminated unwanted blue click-selection stripes.
 
 ---
 

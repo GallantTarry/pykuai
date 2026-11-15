@@ -1,4 +1,4 @@
-[English](https://github.com/GallantTarry/pykuai/blob/main/README.md) | 简体中文
+[English](README.md) | 简体中文
 
 # 🐍 PyKuai (v1.2.8) — 面向计算机专业的开源脚本工具箱
 
@@ -16,7 +16,55 @@
   * **两位叠字全局指令**（`tt`、`pp`、`xp`、`cc`）配合 `help` / `gg`：形成极快的肌肉记忆终端导航。
   * **三位字母工具引擎**（`ifc`、`ytd` 等）：为每款工具提供清晰、互不冲突的独立命名空间。
 * **交互与静默双模式并行 + 内置使用手册**：所有工具既可通过鼠标可点击的 **Rich / Textual** 赛博暗黑交互面板运行（按 `?` 或 `F1`，或点击右上角 `?` 即可弹出完整的英文功能详解弹窗），也可直接在 Shell 与自动化脚本中传参直调。
+* **虚拟 CRT Windows XP 游乐场（`xp`）**：从 3D 卧室潜行开机过场直达虚拟 Windows XP Bliss 桌面，内置 `HEX 3D` 与基于本地 Edge/Chrome CDP 驱动的**原生 IE 6 真实浏览器**（支持终端内 **Sixel HD** 真像素实时投影）。
 * **赛博触感与界面英语化**：自带 ASCII Banner、可选的高 DPI 桌面像素贪吃蛇开场动画（`--fast` 跳过）、Windows Terminal 标题与图标退出还原、图片拖入自动识别、以及可持久化开关的复古 CC0 街机音效（保存至 `~/.pykuai/settings.json`）；运行时界面与指令保持简洁英文，便于对接上游生态并面向全球社区分享。
+
+---
+
+## 🔄 全链路架构与数据流转图
+
+```mermaid
+flowchart TD
+    subgraph S1["1. 入口路由与微内核调度层"]
+        User["用户终端 / REPL 控制台 / CLI 直调"] -->|"启动 pykuai 或子命令"| CLI["cli.py 主调度器与 REPL"]
+        CLI -->|"开场动画 + 终端恢复守护"| CoreUX["intro.py / watchdog.py / audio.py"]
+        CLI -->|"扫描三字母插件模块"| Reg["registry.py 三字母引擎注册器"]
+    end
+
+    subgraph S2["2. 交互面板、三字母引擎与依赖管理层"]
+        Reg -->|"tt 工具托盘 / CLI 参数"| TUI["tui.py & tray.py 赛博暗黑交互框"]
+        TUI -->|"拖图识别 / 面板 / 传参"| IFC["engines/ifc.py Pillow + UnsharpMask"]
+        TUI -->|"流媒体解析 / 字幕 / 混流"| YTD["engines/ytd.py yt-dlp + FFmpeg"]
+        CLI -->|"pp AST 与 pyproject 审计"| Deps["core/deps.py 全局依赖管理器"]
+        YTD -.->|"Cookie 加密锁库兜底"| Auth["core/yt_auth.py 隔离浏览器登录"]
+    end
+
+    subgraph S3["3. XP 游乐场 CRT 与 IE 6 真像素投影链路"]
+        CLI -->|"xp / xp hex"| Room["arcade/room3d.py 3D 过场 + XP 桌面"]
+        Room -->|"内置破损左键怀旧游戏"| Hex["arcade/hex3d.py 2x2 亚像素 3D 贪吃蛇"]
+        Room -->|"本地 Edge/Chrome CDP + 系统代理"| IE6["arcade/ie6.py Page.startScreencast"]
+        IE6 -->|"CSI 16t / DA1 + numpy P2=1 Sixel"| Blit["原子同步 VT 合成渲染器"]
+        IE6 -.->|"不支持 Sixel 终端 / 文本模式切换"| HB["真彩半字符画与纯文本阅读模式"]
+    end
+
+    subgraph S4["4. 产物输出与本地状态持久化"]
+        IFC --> OutFiles["转换图像与多尺寸 ICO 图标"]
+        YTD --> OutMedia["合成 MP4 / MP3 / 双语字幕"]
+        Room --> LocalState["~/.pykuai/settings.json 与 ie6_bookmarks.json"]
+        Auth --> Cookies["~/.pykuai/cookies.txt 与 yt-session"]
+    end
+```
+
+---
+
+## ⚙️ 分阶段流程与核心技术栈
+
+| 阶段 | 数据流向（从哪到哪） | 采用的核心专业技术 | 具体完成的工作 |
+| :--- | :--- | :--- | :--- |
+| **1. 控制台与 REPL 调度** | 终端输入 → [`cli.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/cli.py) → [`registry.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/registry.py) / [`tray.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tray.py) | `Win32 ReadConsoleInputW`、`SGR Mouse`、`Rich`、`^[a-z]{3}$` 反射加载 | 绘制像素贪吃蛇开场与 Banner，捕获原始键鼠/粘贴突发事件并播放 CC0 WAV 音效，自动注册并分发全局双字母指令与三字母插件。 |
+| **2. 工具引擎与依赖体系** | [`tray.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tray.py) / CLI → [`ifc.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ifc.py) / [`ytd.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ytd.py) / [`deps.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/deps.py) | `Pillow`、`UnsharpMask`、`yt-dlp`、`FFmpeg`、SHA256 校验、隔离 Chromium Cookie 提取 | 原子化转换图像与打包多分辨率 `.ico`；支持免扩展登录 YouTube 解决 127+ 锁库加密并按需校验安装 FFmpeg；结合 AST 与 `pyproject.toml` 管理环境依赖。 |
+| **3. XP CRT 与桌面引擎** | [`launcher.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/launcher.py) → [`room3d.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/room3d.py) → [`hex3d.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/hex3d.py) | `Textual`、2x2 四象限亚像素画布、合成降 E 大调 XP 启动和弦 | 播放 3D 卧室开机过场，呈现含 `Bliss` 壁纸与精简 `START -> OFF` 菜单的 Windows XP 桌面，并在终端内原生运行 `HEX 3D` 与 IE 6。 |
+| **4. 原生 IE 6 与 Sixel HD 投影** | [`room3d.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/room3d.py) ↔ [`ie6.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/ie6.py) ↔ 本地 Edge/Chrome ↔ 终端屏幕 | `CDP WebSocket`（`Page.startScreencast`）、`CSI 16t` / `DA1`、`numpy` `P2=1` Sixel、`\x1b[?2026h` 同步输出、`DECSCUSR` | 异步接收实时网页帧并过滤空闲光标闪烁与重复负载；通过原子同步输出消除焦点切换导致的黑屏闪烁，并将细竖线光标动态锚定在网页点击位置以修复中文输入法偏移问题。 |
 
 ---
 
@@ -27,15 +75,21 @@ pykuai/
 ├── .github/
 │   └── workflows/
 │       └── publish.yml         # GitHub Actions Trusted Publishing 自动构建与发布 PyPI 流水线
-├── pyproject.toml              # 包元信息、可选依赖分组与全局 pykuai 命令入口
+├── pyproject.toml              # 包元信息、核心依赖（含 numpy）、可选分组与全局 pykuai 入口
 ├── README.md                   # 项目英文主文档（用于 GitHub 首页与 PyPI 展示）
-├── README.zh-CN.md             # 项目简体中文详细文档（与英文文档保持同步）
+├── README.zh-CN.md             # 项目简体中文同步文档（与英文文档保持同步）
 ├── .gitignore                  # Git 忽略规则（缓存、构建产物、大体积二进制与临时输出）
 ├── .backup_engines/            # 早期重构前保留的 10 个历史参考脚本（运行时不会加载）
 └── pykuai/                     # 核心 Python 包目录
     ├── __init__.py             # 版本号（1.2.8）与作者元信息
     ├── __main__.py             # python -m pykuai 模块化启动入口
     ├── cli.py                  # 主控制台调度器（REPL 交互循环与 CLI 直达分支）
+    ├── arcade/                 # XP Playground 3D CRT、怀旧游戏与内置 IE 6 真实浏览器
+    │   ├── __init__.py         # ArcadeGame 游乐场小游戏插件注册表与最高分存储
+    │   ├── launcher.py         # xp 入口启动器与游乐场摘要表格输出
+    │   ├── hex3d.py            # hex: 内置 3D 多彩六边形与斑点蛇小游戏
+    │   ├── room3d.py           # 3D 过场动画、XP Bliss 桌面、Sixel 原子合成渲染与 IME 光标锚定
+    │   └── ie6.py              # 原生 IE 6 引擎（Edge/Chrome CDP 推流、Sixel P2=1 与半字符兜底）
     ├── core/                   # 微内核基础设施层
     │   ├── __init__.py         # core 包标识文件
     │   ├── audio.py            # 非阻塞 CC0 复古音效播放器与开关状态持久化
@@ -72,7 +126,7 @@ pykuai/
 ### 各板块详细职责
 
 1. **根目录配置、发布流水线与历史归档**
-   * **[pyproject.toml](https://github.com/GallantTarry/pykuai/blob/main/pyproject.toml)**：定义项目名称、版本号（`1.2.8`）、Python 版本要求（`>=3.9`）、核心依赖（`rich`、`textual`、`openpyxl`、`Pillow`、`pypdf`）、可选分组（`office` / `media` / `cv` / `archive` / `ui` / `all`）、打包静态资源（`tools/*`、`assets/*`、`assets/sfx/*`）及全局命令行入口 `pykuai`。
+   * **[pyproject.toml](https://github.com/GallantTarry/pykuai/blob/main/pyproject.toml)**：定义项目名称、版本号（`1.2.8`）、Python 版本要求（`>=3.9`）、核心依赖（`rich`、`textual`、`openpyxl`、`Pillow`、`pypdf`、`numpy`）、可选分组（`office` / `media` / `cv` / `archive` / `ui` / `all`）、打包静态资源（`tools/*`、`assets/*`、`assets/sfx/*`）及全局命令行入口 `pykuai`。
    * **[.github/workflows/publish.yml](https://github.com/GallantTarry/pykuai/blob/main/.github/workflows/publish.yml)**：基于 GitHub OIDC 的无密钥 PyPI Trusted Publishing 自动构建与发布流水线，推送 `v*` / `pykuaiv*` 标签或手动触发 `workflow_dispatch` 即可发布。
    * **[.backup_engines/](https://github.com/GallantTarry/pykuai/tree/main/.backup_engines)**：存放重构前留存的 10 个独立参考脚本（`archive.py`、`excel_merge.py`、`excel_split.py`、`img_compress.py`、`media_fetch.py`、`office_fixed.py`、`pdf_split.py`、`scanner.py`、`video_compress.py`、`web_sniffer.py`），仅作归档参考，不会被 `registry.py` 自动加载。
 
@@ -84,7 +138,11 @@ pykuai/
    * **[tools.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tools.py)** 与 **[yt_auth.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/yt_auth.py)**：在内置 `tools/`、系统 `PATH` 与 `~/.pykuai/tools/` 中统一定位外部程序（`ffmpeg`、`ffprobe`、`yt-dlp`、`UnRAR` 与 Node/Deno JS 运行时）；支持在 Windows 缺失 FFmpeg 时经 SHA256 校验后自动安装（带 `urllib` + `curl`/直连多重兜底），并通过隔离浏览器会话（`~/.pykuai/yt-session` → `~/.pykuai/cookies.txt`）实现免装插件的一键登录 YouTube。
    * **[intro.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/intro.py)** 与 **[watchdog.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/watchdog.py)**：渲染高 DPI 桌面像素贪吃蛇过场动画（联动 `snake.wav`），并在退出时安全恢复 Windows Terminal 的标题与图标状态。
 
-3. **内置工具引擎层（`pykuai/engines/`）**
+3. **XP 游乐场 CRT 与真实浏览器（`pykuai/arcade/`）**
+   * **[launcher.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/launcher.py)** 与 **[hex3d.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/hex3d.py)**：提供 `xp` / `xp hex` / `xp help` 启动入口，并用 2x2 四象限亚像素渲染内置怀旧游戏 `HEX 3D`（`hex`）。
+   * **[room3d.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/room3d.py)** 与 **[ie6.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/ie6.py)**：渲染 3D 开机过场与 Windows XP Bliss 桌面，通过本地 Edge/Chrome CDP（`Page.startScreencast`）与系统代理继承驱动原生样式 IE 6，在支持 Sixel 的终端里输出实时真像素画面（`P2=1`、`numpy` 调色板量化）并自动兼容 24-bit 半字符降级；借助 `\x1b[?2026h...\x1b[?2026l` 原子合成输出与动态网页光标定位修复画面闪黑及中文输入法候选框偏移问题。
+
+4. **内置工具引擎层（`pykuai/engines/`）**
    * **[ifc.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ifc.py)**（`ifc` — *Image Format Converter*）
    * **[ytd.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ytd.py)**（`ytd` — *YouTube Download*）
 
@@ -106,7 +164,7 @@ pykuai/
 
 ---
 
-## 🚀 双模式运行与全局指令
+## 🚀 使用方式与全局指令
 
 ### 1. 交互式控制台模式（REPL）
 
@@ -124,7 +182,7 @@ pykuai --fast
 | :--- | :--- | :--- |
 | `tt` | **Tool Tray** | 打开可视化工具托盘，或运行 `tt <tool> [args]` |
 | `pp` | **Pull Packages** | 检查并可视化安装/升级插件依赖（`pp --check` / `pp -y` / `pp -U`） |
-| `xp` | **XP Playground** | 启动 3D 过场动画与虚拟 Windows XP CRT（内置 `HEX 3D`） |
+| `xp` | **XP Playground** | 启动 3D 过场动画与虚拟 Windows XP CRT（内置 `HEX 3D` 与 `IE 6` 浏览器） |
 | `cc` | **Clear Console** | 清屏并重绘 Cyber-Dark 欢迎横幅与全局状态栏 |
 
 > 💡 **效率技巧**：在控制台提示符处直接拖入或粘贴图片文件路径，会自动唤醒 `ifc` 并预填好该图片路径。
@@ -159,30 +217,7 @@ pykuai xp
 pykuai --version
 ```
 
----
-
-## 🛠️ 安装与开发配置
-
-通过 PyPI 直接安装或使用源码本地可编辑安装：
-
-```bash
-# 从 PyPI 安装核心工作台
-pip install pykuai
-
-# 或连同媒体下载工具链 / 全部可选依赖一并安装
-pip install "pykuai[media]"
-pip install "pykuai[all]"
-
-# 克隆仓库后的本地开发模式安装
-git clone https://github.com/GallantTarry/pykuai.git
-cd pykuai
-pip install -e .
-pip install -e ".[all]"
-```
-
-安装完成后即可在任意目录运行 `pykuai` 或 `python -m pykuai`。
-
-> **关于外部工具链的说明**：为了保持 Git 仓库与 PyPI 分发包轻量精简（约 30 MiB），仓库仅内置 `yt-dlp.exe`、`UnRAR.exe` 与 `zpix.ttf`，不再打包体积庞大的 `ffmpeg.exe` / `ffprobe.exe`。在 Windows 上若系统 `PATH` 或 `~/.pykuai/tools/` 中未找到 FFmpeg，`ytd` 会在下载时主动提示一键下载并完成 SHA256 校验安装至 `~/.pykuai/tools/`（也可随时执行 `pykuai tt ytd --install-ffmpeg`）。
+> **关于外部工具链的说明**：为了保持 Git 仓库与 PyPI 分发包轻量精简，仓库仅内置 `yt-dlp.exe`、`UnRAR.exe` 与 `zpix.ttf`，不再打包体积庞大的 `ffmpeg.exe` / `ffprobe.exe`。在 Windows 上若系统 `PATH` 或 `~/.pykuai/tools/` 中未找到 FFmpeg，`ytd` 会在下载时主动提示一键下载并完成 SHA256 校验安装至 `~/.pykuai/tools/`（也可随时执行 `pykuai tt ytd --install-ffmpeg`）。
 
 ---
 
@@ -229,9 +264,11 @@ class MyToolEngine(BaseEngine):
 
 ## ✨ v1.2.8 版本主要更新
 
-* **XP Playground（`xp`）**：将街机入口重构为 `xp`，带来 3D 卧室开机过场与极简 Windows XP Bliss 桌面体验，内置 `HEX 3D` 入口与精简版 `START` -> `OFF` 关机菜单。
-* **主页横幅与可点击全局 `SFX` 开关**：将版本与作者信息移至 `PYKUAI` 横幅右侧，新增可鼠标点击切换的 `SFX ON` / `SFX OFF` 全局音效开关，并将 REPL 常用指令精简为 `xp`、`help` 与 `gg`。
-* **界面与交互修复**：去除 `xp` 桌面顶部/底部多余状态栏及任务栏杂项，并修复点击画布时出现蓝色选中横线的问题。
+* **XP Playground 游乐场（`xp`）**：将街机入口重构为 `xp`，带来 3D 卧室潜行开机过场与极简 Windows XP Bliss 桌面体验，支持增量局部刷新与单击启动应用，内置 `HEX 3D` 与精简版 `START` -> `OFF` 关机菜单。
+* **XP 桌面内置原生 IE 6 浏览器（[`ie6.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/ie6.py)）**：基于本机 Chromium / Edge CDP（`Page.startScreencast`）实时驱动真实网页，支持地址栏输入网址/域名直接跳转（不再劫持至第三方搜索页）、自动继承本地系统代理、持久化个人书签（`~/.pykuai/ie6_bookmarks.json`）以及 `View` / `Txt` 视图一键切换。
+* **Sixel HD 真像素实时投影与高速 `numpy` 管线**：通过 `CSI 16t` / `DA1` 探测终端字符物理像素尺寸，在支持 Sixel 的终端（如 Windows Terminal）后台异步编码 `128` 色量化 `P2=1` Sixel 高清画面，并在不支持的环境自动降级为 24-bit 真彩半字符画（`HB·Blk`）；同步将 `numpy>=1.24.0` 列入 `pyproject.toml` 核心必选依赖。
+* **零闪烁合成渲染、原生输入法光标定位与极简控制栏**：使用 `\x1b[?2026h ... \x1b[?2026l` 同步输出捆绑 UI 与 Sixel 帧并过滤 `Addr` 失焦触发的视口空白重刷，过滤静止期光标闪烁帧；将硬件细竖线光标（`\x1b[6 q\x1b[?25h`）动态锚定在网页点击格上，彻底解决中文输入法弹在 `Addr` 后方或跑出 PowerShell 外面的问题；移除冗余调参按钮并在空书签时自动隐藏书签栏。
+* **主页横幅与全局 `SFX` 细节升级**：将版本与作者信息移至 `PYKUAI` 横幅右侧，新增可鼠标点击切换的 `🔊 SFX ON / 🔇 SFX OFF` 全局音效开关，精简 `xp`、`help` 与 `gg` 指令，并消除 `xp` 桌面点击画布时的蓝色选中横线。
 
 ---
 
