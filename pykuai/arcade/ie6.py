@@ -67,18 +67,16 @@ _CACHED_TERM_GFX: Optional[TerminalGraphicsInfo] = None
 
 def _parse_terminal_caps_reply(reply: str) -> TerminalGraphicsInfo:
     cell_w, cell_h = 10, 20
-    m_size = re.search(r"\x1b\[6;(\d+);(\d+)t", reply)
-    if m_size:
+    for m_size in re.finditer(r"\x1b\[6;(\d+);(\d+)t", reply):
         parsed_h = int(m_size.group(1))
         parsed_w = int(m_size.group(2))
         if 8 <= parsed_h <= 64 and 4 <= parsed_w <= 36:
             cell_h, cell_w = parsed_h, parsed_w
 
-    sixel_ok = False
-    m_da = re.search(r"\x1b\[\?([0-9;]+)c", reply)
-    if m_da:
-        attrs = m_da.group(1).split(";")
-        sixel_ok = "4" in attrs
+    sixel_ok = any(
+        "4" in m_da.group(1).split(";")
+        for m_da in re.finditer(r"\x1b\[\?([0-9;]+)c", reply)
+    )
     return TerminalGraphicsInfo(
         sixel_supported=sixel_ok,
         cell_w=cell_w,
@@ -91,7 +89,9 @@ def _probe_win32_vt(timeout: float) -> str:
     import ctypes
     from ctypes import wintypes
 
-    k32 = ctypes.windll.kernel32
+    # Always instantiate a private WinDLL instead of shared ctypes.windll.kernel32 so
+    # callers like cli.py setting ReadConsoleInputW.argtypes cannot cause ArgumentError here.
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     STD_INPUT_HANDLE = -10
     STD_OUTPUT_HANDLE = -11
     ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200
@@ -121,8 +121,35 @@ def _probe_win32_vt(timeout: float) -> str:
     class INPUT_RECORD(ctypes.Structure):
         _fields_ = [("EventType", wintypes.WORD), ("Event", EVENT_UNION)]
 
-    h_in = k32.GetStdHandle(STD_INPUT_HANDLE)
-    h_out = k32.GetStdHandle(STD_OUTPUT_HANDLE)
+    k32.GetStdHandle.argtypes = [wintypes.DWORD]
+    k32.GetStdHandle.restype = wintypes.HANDLE
+    k32.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    k32.GetConsoleMode.restype = wintypes.BOOL
+    k32.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    k32.SetConsoleMode.restype = wintypes.BOOL
+    k32.WriteFile.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p,
+    ]
+    k32.WriteFile.restype = wintypes.BOOL
+    k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    k32.WaitForSingleObject.restype = wintypes.DWORD
+    k32.ReadConsoleInputW.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(INPUT_RECORD),
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    k32.ReadConsoleInputW.restype = wintypes.BOOL
+
+    h_in = k32.GetStdHandle(wintypes.DWORD(STD_INPUT_HANDLE & 0xFFFFFFFF))
+    h_out = k32.GetStdHandle(wintypes.DWORD(STD_OUTPUT_HANDLE & 0xFFFFFFFF))
+    invalid = wintypes.HANDLE(-1).value
+    if not h_in or h_in == invalid or not h_out or h_out == invalid:
+        return ""
     mode_in = wintypes.DWORD(0)
     mode_out = wintypes.DWORD(0)
     if not k32.GetConsoleMode(h_in, ctypes.byref(mode_in)) or not k32.GetConsoleMode(h_out, ctypes.byref(mode_out)):
@@ -132,6 +159,11 @@ def _probe_win32_vt(timeout: float) -> str:
     old_out = mode_out.value
     buf_chars: list[str] = []
     try:
+        try:
+            if sys.__stdout__ is not None:
+                sys.__stdout__.flush()
+        except Exception:
+            pass
         k32.SetConsoleMode(h_out, old_out | ENABLE_VIRTUAL_TERMINAL_PROCESSING)
         k32.SetConsoleMode(h_in, ENABLE_VIRTUAL_TERMINAL_INPUT)
         probe_bytes = b"\x1b[c\x1b[16t"
@@ -159,10 +191,14 @@ def _probe_win32_vt(timeout: float) -> str:
                 ch = ke.uChar.UnicodeChar
                 if ch and ch != "\x00":
                     buf_chars.append(ch)
-                    if ch == "c":
-                        got_da = True
-                    elif ch == "t":
-                        got_size = True
+                    if ch in ("c", "t"):
+                        joined = "".join(buf_chars)
+                        if not got_da and re.search(r"\x1b\[\?[0-9;]+c", joined):
+                            got_da = True
+                            if not got_size:
+                                deadline = min(deadline, time.monotonic() + 0.08)
+                        if not got_size and re.search(r"\x1b\[6;\d+;\d+t", joined):
+                            got_size = True
             if got_da and got_size:
                 break
     finally:
@@ -200,7 +236,7 @@ def _probe_posix_vt(timeout: float) -> str:
     return "".join(chunks)
 
 
-def probe_terminal_sixel_info(timeout: float = 0.14) -> TerminalGraphicsInfo:
+def probe_terminal_sixel_info(timeout: float = 0.28) -> TerminalGraphicsInfo:
     """
     Detect whether the active interactive terminal supports Sixel graphics (`CSI c` attr 4)
     and query its physical character-cell pixel size (`CSI 16t`), safely caching the result.
@@ -874,7 +910,7 @@ def _encode_sixel_numpy(q_img: Image.Image, max_colors: int) -> str:
     arr = np.asarray(q_img, dtype=np.uint8)
     used_colors = np.flatnonzero(np.bincount(arr.ravel(), minlength=max(1, max_colors)))
 
-    hdr: list[bytes] = [f'\x1bP0;0;0q"1;1;{w};{h}'.encode("ascii")]
+    hdr: list[bytes] = [f'\x1bP0;1;0q"1;1;{w};{h}'.encode("ascii")]
     for c in used_colors.tolist():
         if c * 3 + 2 < len(pal):
             r = round(pal[c * 3] * 100 / 255)
@@ -924,7 +960,7 @@ def _encode_sixel_stdlib(q_img: Image.Image) -> str:
     raw = memoryview(q_img.tobytes())
     used = sorted(set(raw))
 
-    parts = [f'\x1bP0;0;0q"1;1;{w};{h}']
+    parts = [f'\x1bP0;1;0q"1;1;{w};{h}']
     append = parts.append
     for c in used:
         if c * 3 + 2 < len(pal):
@@ -1093,6 +1129,7 @@ class IE6BrowserSession:
         self._sixel_wake = threading.Event()
         self._sixel_cfg_event = threading.Event()
         self._sixel_thread: Optional[threading.Thread] = None
+        self._last_interaction_ts = time.monotonic()
 
     def _ensure_sixel_worker(self) -> None:
         if self._sixel_thread is not None and self._sixel_thread.is_alive():
@@ -1103,9 +1140,21 @@ class IE6BrowserSession:
         )
         self._sixel_thread.start()
 
+    @staticmethod
+    def _sample_thumb(img: Image.Image):
+        try:
+            import numpy as np
+
+            return np.asarray(img, dtype=np.int16)[::4, ::4].copy()
+        except Exception:
+            return None
+
     def _sixel_worker_loop(self) -> None:
         last_cfg_only: tuple[object, ...] = ()
         last_encode_ts = 0.0
+        last_thumb = None
+        prev2_thumb = None
+        last_payload = ""
         while not self._stop_event.is_set():
             self._sixel_wake.wait(timeout=0.5)
             self._sixel_wake.clear()
@@ -1125,6 +1174,29 @@ class IE6BrowserSession:
                         or (snap.sixel_key == cfg_only and snap.sixel_shot_seq == shot_seq)
                     ):
                         break
+                if cfg_only != last_cfg_only:
+                    last_thumb = None
+                    prev2_thumb = None
+                    last_payload = ""
+                cur_thumb = self._sample_thumb(img)
+                if cfg_only == last_cfg_only and cur_thumb is not None and last_thumb is not None and cur_thumb.shape == last_thumb.shape:
+                    import numpy as np
+
+                    diff_cnt = int(np.count_nonzero(np.abs(cur_thumb - last_thumb).max(axis=2) > 9))
+                    recent_input = (time.monotonic() - self._last_interaction_ts) <= 0.85
+                    min_changed = 1 if recent_input else 12
+                    is_caret_blink = (
+                        not recent_input
+                        and prev2_thumb is not None
+                        and prev2_thumb.shape == cur_thumb.shape
+                        and int(np.count_nonzero(np.abs(cur_thumb - prev2_thumb).max(axis=2) > 9)) <= 2
+                    )
+                    if diff_cnt < min_changed or is_caret_blink:
+                        with self._lock:
+                            cur = self._snapshot
+                            if cur.sixel_key == cfg_only and cur.url == url:
+                                cur.sixel_shot_seq = shot_seq
+                        break
                 if cfg_only == last_cfg_only:
                     wait_rem = 0.082 - (time.monotonic() - last_encode_ts)
                     if wait_rem > 0.004:
@@ -1143,8 +1215,17 @@ class IE6BrowserSession:
                     )
                 except Exception:
                     break
+                prev2_thumb = last_thumb
+                last_thumb = cur_thumb
                 last_cfg_only = cfg_only
                 last_encode_ts = time.monotonic()
+                if payload == last_payload:
+                    with self._lock:
+                        cur = self._snapshot
+                        if cur.sixel_key == cfg_only and cur.url == url:
+                            cur.sixel_shot_seq = shot_seq
+                    break
+                last_payload = payload
                 with self._lock:
                     cur = self._snapshot
                     cfg_now = self._sixel_cfg
@@ -1246,45 +1327,55 @@ class IE6BrowserSession:
             )
 
     def navigate(self, raw_url_or_query: str) -> str:
+        self._last_interaction_ts = time.monotonic()
         url, allow_http_fallback = resolve_navigation_target(raw_url_or_query)
         self.start()
         self._cmd_q.put(("nav", url, True, allow_http_fallback))
         return url
 
     def go_home(self, bookmarks: list[dict[str, str]]) -> None:
+        self._last_interaction_ts = time.monotonic()
         self._bookmarks = bookmarks
         self.start()
         self._cmd_q.put(("home", bookmarks))
 
     def back(self) -> None:
+        self._last_interaction_ts = time.monotonic()
         self.start()
         self._cmd_q.put(("back",))
 
     def forward(self) -> None:
+        self._last_interaction_ts = time.monotonic()
         self.start()
         self._cmd_q.put(("forward",))
 
     def reload(self) -> None:
+        self._last_interaction_ts = time.monotonic()
         self.start()
         self._cmd_q.put(("reload",))
 
     def dispatch_click(self, norm_x: float, norm_y: float) -> None:
+        self._last_interaction_ts = time.monotonic()
         self.start()
         self._cmd_q.put(("click", norm_x, norm_y))
 
     def dispatch_scroll(self, delta_y: int) -> None:
+        self._last_interaction_ts = time.monotonic()
         self.start()
         self._cmd_q.put(("scroll", delta_y))
 
     def dispatch_type(self, text: str, press_enter: bool = True) -> None:
+        self._last_interaction_ts = time.monotonic()
         self.start()
         self._cmd_q.put(("type", text, press_enter))
 
     def dispatch_key(self, key: str, code: str, vk: int) -> None:
+        self._last_interaction_ts = time.monotonic()
         self.start()
         self._cmd_q.put(("key", key, code, vk))
 
     def submit_dom_input(self, input_idx: int, text: str) -> None:
+        self._last_interaction_ts = time.monotonic()
         self.start()
         self._cmd_q.put(("dom_input", input_idx, text))
 
