@@ -1,6 +1,6 @@
 English | [简体中文](README.zh-CN.md)
 
-# 🐍 PyKuai (v1.2.8) — Open-Source CS & Developer Script Toolbox(may be console)
+# 🐍 PyKuai (v1.2.8) — Open-Source CS & Developer Script Toolbox
 
 > **An open-source, modular CLI & TUI script toolbox built for Computer Science workflows, developer utilities, and community sharing.**  
 > *"The Lord is my shepherd."* — Author: **TuKuai** ([GallantTarry](https://github.com/GallantTarry))
@@ -288,3 +288,11 @@ Restart `pykuai`—no core edits or manual registration needed. `pdf` appears im
 * **[Pillow](https://python-pillow.org/)** — Multi-format image processing powering `pykuai tt ifc`
 * **[Textual](https://textual.textualize.io/)** & **[Rich](https://github.com/Textualize/rich)** — Cyber-Dark interactive TUI widgets and console rendering
 * **[Kenney Audio](https://kenney.nl/)** & **[CC0 Public Domain Sounds](https://github.com/lavenderdotpet/CC0-Public-Domain-Sounds)** — Retro CC0 UI click, key, enter, paste, telegraph, and pixel-snake sound effects
+
+---
+
+## License
+
+Copyright © 2026 TuKuai (GallantTarry). Licensed under the [Apache License 2.0](LICENSE).
+
+> Third-party notice: Bundled external tools and assets (`pykuai/tools/yt-dlp.exe`, `pykuai/tools/UnRAR.exe`, `pykuai/tools/zpix.ttf`, and CC0 sound effects under `pykuai/assets/sfx/`), declared Python dependencies in `pyproject.toml`, and runtime-downloaded tools (such as `FFmpeg`) remain subject to their respective original licenses.

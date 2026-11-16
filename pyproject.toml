@@ -7,12 +7,14 @@ name = "pykuai"
 version = "1.2.8"
 description = "Open-source modular Python CLI & TUI script toolbox for CS & developers"
 readme = "README.md"
+license = { text = "Apache-2.0" }
 requires-python = ">=3.9"
 authors = [
     { name = "TuKuai", email = "tukuai@gallanttarry.dev" }
 ]
 keywords = ["python", "cli", "tui", "terminal", "textual", "rich", "automation", "toolbox", "computer-science", "developer-tools"]
 classifiers = [
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Environment :: Console",
     "Operating System :: OS Independent",

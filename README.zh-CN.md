@@ -288,3 +288,11 @@ class MyToolEngine(BaseEngine):
 * **[Pillow](https://python-pillow.org/)** — 驱动 `pykuai tt ifc` 的图像处理与多格式编码库
 * **[Textual](https://textual.textualize.io/)** & **[Rich](https://github.com/Textualize/rich)** — Cyber-Dark 终端交互界面与渲染框架
 * **[Kenney Audio](https://kenney.nl/)** & **[CC0 Public Domain Sounds](https://github.com/lavenderdotpet/CC0-Public-Domain-Sounds)** — 复古 CC0 界面点击、按键、回车、粘贴、像素电报与蛇嘶音效素材
+
+---
+
+## 开源协议
+
+Copyright © 2026 TuKuai (GallantTarry)。本项目代码采用 [Apache License 2.0](LICENSE) 开源协议。
+
+> 第三方声明：仓库内置的外部工具与素材（`pykuai/tools/yt-dlp.exe`、`pykuai/tools/UnRAR.exe`、`pykuai/tools/zpix.ttf` 及 `pykuai/assets/sfx/` 下的 CC0 音效）、`pyproject.toml` 所声明的 Python 依赖以及运行时下载的工具（如 `FFmpeg`）各自遵循其原始协议。
