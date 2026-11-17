@@ -6,6 +6,8 @@ Houses tool engines such as `ifc` and `ytd` under a single clean doubled-letter 
 from __future__ import annotations
 
 import argparse
+import os
+import shlex
 from dataclasses import dataclass
 from typing import Optional
 
@@ -37,6 +39,33 @@ TT_HELP_TEXT = """\
   • [bold #e5e7eb]pykuai pp[/]                Open the Package Manager Studio (install or upgrade tool dependencies).
   • [bold #e5e7eb]pykuai xp[/]                Launch XP Playground (3D Cutscene & Virtual Windows XP CRT).
   • [bold #e5e7eb]pykuai help[/] / [bold #e5e7eb]gg[/]         Show command reference table or quit the console."""
+
+
+def match_dropped_file(text: str, engines: dict[str, BaseEngine]) -> Optional[tuple[BaseEngine, str]]:
+    """Resolve one terminal-dropped file and its registered tool."""
+    path = text.strip()
+    if path.startswith("& "):
+        path = path[2:].lstrip()
+    if len(path) >= 2 and path[0] == path[-1] and path[0] in "\"'":
+        quote = path[0]
+        path = path[1:-1]
+        if os.name == "nt" and quote == "'":
+            # PowerShell doubles apostrophes inside a single-quoted path.
+            path = path.replace("''", "'")
+    elif os.name != "nt" and "\\" in path and not os.path.isfile(path):
+        try:
+            tokens = shlex.split(path)
+        except ValueError:
+            return None
+        if len(tokens) != 1:
+            return None
+        path = tokens[0]
+    path = os.path.expanduser(path)
+    suffix = os.path.splitext(path)[1].lower()
+    for engine in engines.values():
+        if suffix in engine.drop_extensions and os.path.isfile(path):
+            return engine, os.path.abspath(path)
+    return None
 
 
 def _build_tt_app(engines: dict[str, BaseEngine]):

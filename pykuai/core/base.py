@@ -17,6 +17,7 @@ class BaseEngine(ABC):
     description: str = ""
     usage: str = ""
     category: str = "General"
+    drop_extensions: tuple[str, ...] = ()
     requires: list[str] = []
     help_text: str = ""
 

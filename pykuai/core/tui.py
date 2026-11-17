@@ -365,6 +365,10 @@ class StudioHeader(Horizontal):
         kwargs.setdefault("classes", "studio-header")
         super().__init__(**kwargs)
 
+    @classmethod
+    def for_tool(cls, code: str, name: str) -> StudioHeader:
+        return cls(f"{code}  [#9ca3af]·  {name}[/]")
+
     def compose(self) -> ComposeResult:
         yield Static(self._title, classes="studio-title")
         if self._show_help:
@@ -614,6 +618,67 @@ class PyKuaiStudioApp(App):
     def action_cancel(self) -> None:
         play_sfx("click")
         self.exit(None)
+
+
+class ToolStudioApp(PyKuaiStudioApp):
+    """Common layout for the three Tool Tray forms."""
+
+    CSS = CYBER_TUI_CSS + """
+    #studio-card {
+        height: 24;
+        padding: 0 1;
+    }
+    #studio-scroll {
+        height: 1fr;
+        min-height: 1;
+    }
+    .compact-row > .field-label, .compact-tight > .field-label {
+        width: 9;
+    }
+    .studio-note {
+        height: auto;
+        color: #9ca3af;
+        margin-top: 1;
+    }
+    .hidden-section {
+        display: none;
+    }
+    .shown-err {
+        height: auto;
+        max-height: 3;
+    }
+    #studio-card > .action-bar ActionChip {
+        width: 1fr;
+        min-width: 0;
+        padding: 0 1;
+    }
+    #studio-card > .action-bar ActionChip:last-child {
+        margin-right: 0;
+    }
+    Screen.narrow .option-row {
+        layout: grid;
+        grid-size: 2;
+        grid-columns: 1fr 1fr;
+        grid-rows: 1;
+        grid-gutter: 0 1;
+        height: auto;
+    }
+    Screen.narrow .option-row > .field-label {
+        column-span: 2;
+        width: auto;
+    }
+    Screen.narrow .option-row > .continuation {
+        display: none;
+    }
+    Screen.narrow .option-row ToggleChip, Screen.narrow .option-row ActionChip {
+        width: 1fr;
+        min-width: 0;
+        margin-right: 0;
+    }
+    """
+
+    def on_resize(self, event: events.Resize) -> None:
+        self.screen.set_class(event.size.width < 76, "narrow")
 
 
 def pick_multi(

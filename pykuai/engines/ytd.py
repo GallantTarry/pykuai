@@ -226,16 +226,16 @@ def _validate_connection_options(cookies_browser: str, cookies_file: str, proxy_
 _FINAL_FILE_PREFIX = "__PYKUAI_FILE__:"
 
 
-YTD_HELP_TITLE = "ytd  ·  YouTube Download Studio"
+YTD_HELP_TITLE = "ytd · YouTube Download"
 YTD_HELP_TEXT = """\
-[bold #00d2ff]Overview[/]
+[bold #FF9800]Overview[/]
   Download video or extract audio from YouTube and supported URLs using [bold]yt-dlp[/] and [bold]FFmpeg[/].
 
-[bold #00d2ff]URL Input & Validation[/]
+[bold #FF9800]URL Input & Validation[/]
   • Paste any video, Shorts, playlist, or supported media URL into the URL bar.
   • Live validation highlights recognized URLs; bare domains automatically normalize to [#e5e7eb]https://[/] on submit.
 
-[bold #00d2ff]Format Profiles[/]
+[bold #FF9800]Format Profiles[/]
   • [bold #10b981]Best[/]   [#d8dee9]Best MP4 (Auto Mux) — highest video + audio merged into MP4.[/]
   • [bold #10b981]1080p[/]  [#d8dee9]Full HD MP4 — caps video height at 1080p (H.264/M4A preferred).[/]
   • [bold #10b981]720p[/]   [#d8dee9]HD MP4 — caps video height at 720p (H.264/M4A preferred).[/]
@@ -243,28 +243,28 @@ YTD_HELP_TEXT = """\
   • [bold #10b981]M4A[/]    [#d8dee9]M4A Audio — extracts AAC/M4A audio at best available bitrate.[/]
   • [dim #9ca3af]CLI format aliases:[/] [#d8dee9]video / mp4 -> best, audio -> mp3.[/]
 
-[bold #00d2ff]Scope & Subtitles[/]
+[bold #FF9800]Scope & Subtitles[/]
   • [bold #e5e7eb]Single[/]     Downloads only the single linked item (passes --no-playlist even with &list=).
   • [bold #e5e7eb]Playlist[/]   Downloads the full playlist or collection (--yes-playlist).
   • [bold #e5e7eb]Subs[/]       Downloads manual and auto captions for English & Chinese (en, zh-Hans, zh-Hant, zh) and embeds them when FFmpeg is present.
 
-[bold #00d2ff]Cookies & Proxy[/]
-  • [bold #e5e7eb]Cookie[/]        None, Chrome, Edge, Firefox (--cookies-from-browser), or Netscape cookies.txt.
+[bold #FF9800]Cookies & Proxy[/]
+  • [bold #e5e7eb]Cookies[/]       None, Chrome, Edge, Firefox (--cookies-from-browser), or Netscape cookies.txt.
   • [bold #38BDF8]Login YouTube[/] Opens a clean isolated Edge/Chrome sign-in window (~/.pykuai/yt-session) and saves cookies.txt automatically — no browser extension needed.
   • [bold #e5e7eb]cookies.txt[/]   Auto-detects cookies.txt in save/working dir, ~/.pykuai/cookies.txt, or ~/Downloads; you can also paste any path.
   • [dim #9ca3af]Windows Auto-Fallback: When Chrome or Edge locks/blocks its cookie DB (yt-dlp #7271 / DPAPI #10927), ytd falls back to detected cookies.txt or cookieless mode and can offer browser sign-in if YouTube requests verification.[/]
   • [bold #e5e7eb]Proxy[/]         Optional http://, https://, socks4://, or socks5:// proxy URL.
 
-[bold #00d2ff]Output Directory, Naming & Stream Probing[/]
-  • [bold #e5e7eb]Dir[/]      Target save folder (defaults to current working directory; outer quotes on pasted paths are stripped).
+[bold #FF9800]Output Directory, Naming & Stream Probing[/]
+  • [bold #e5e7eb]Output[/]   Target save folder (defaults to current working directory; outer quotes on pasted paths are stripped).
   • Files save as: [dim #9ca3af]%(title).150B \\[%(id)s] \\[<profile>].%(ext)s[/]
   • [bold #f59e0b]Formats[/]  Probes and lists all available video/audio streams (-F) without downloading.
 
-[bold #00d2ff]Smart Resilience & Challenge Solving[/]
+[bold #FF9800]Smart Resilience & Challenge Solving[/]
   • Automatically enables [bold]ejs:github[/] JS challenge solving when Node/Deno is present.
   • Retries failed downloads with a safe fallback format selector on HTTP 403 or unavailable stream errors and prints actionable diagnostics.
 
-[bold #00d2ff]CLI Usage & Shortcuts[/]
+[bold #FF9800]CLI Usage & Shortcuts[/]
   • [bold #e5e7eb]pykuai tt ytd[/]                                 Open interactive Studio
   • [bold #e5e7eb]pykuai tt ytd <url> \\[-f best|1080p|720p|mp3|m4a] \\[-o dir][/]
   • Flags: [dim #9ca3af]-p/--playlist, --subs, --cookies-from-browser, --cookies <txt>, --login, --proxy <url>, -F/--list-formats, --install-ffmpeg[/]
@@ -288,10 +288,9 @@ def _build_ytd_studio_app(
     from textual.widgets import Button, Input, Static
     from pykuai.core.tui import (
         ActionChip,
-        CYBER_TUI_CSS,
-        PyKuaiStudioApp,
         StudioHeader,
         ToggleChip,
+        ToolStudioApp,
     )
 
     runner = resolve_ytdlp_runner()
@@ -305,78 +304,19 @@ def _build_ytd_studio_app(
     init_out = _clean_text(initial_out_dir) or os.getcwd()
     init_proxy_clean = _clean_text(initial_proxy)
     detected_cookie = _clean_text(initial_cookies_file) or _discover_cookies_file(init_out)
-    media_css = CYBER_TUI_CSS + """
-    #studio-card {
-        height: 24;
-        padding: 0 1;
-    }
-    #studio-scroll {
-        height: 1fr;
-        min-height: 1;
-    }
-    .studio-title, .shown-err, .hint-footer {
-        height: auto;
-    }
-    .shown-err {
-        max-height: 3;
-    }
-    .hidden-section {
-        display: none;
-    }
-    .cookie-warn {
-        color: #f59e0b;
-        height: auto;
-        margin-top: 0;
-        margin-bottom: 0;
-    }
-    Screen.narrow .option-row {
-        layout: grid;
-        grid-size: 2;
-        grid-columns: 1fr;
-        grid-rows: 1;
-        grid-gutter: 0 1;
-        height: auto;
-    }
-    Screen.narrow .option-row .field-label,
-    Screen.narrow #ck-file,
-    Screen.narrow #btn-login {
-        column-span: 2;
-    }
-    Screen.narrow #ck-file,
-    Screen.narrow #btn-login {
-        width: 100%;
-        margin-right: 0;
-    }
-    Screen.narrow .option-row ToggleChip {
-        width: 1fr;
-        min-width: 0;
-        margin-right: 0;
-    }
-    .action-bar ActionChip {
-        width: 1fr;
-        min-width: 0;
-        padding: 0 1;
-    }
-    Input.cyber-input {
-        margin-bottom: 0;
-    }
-    .slim-row {
-        height: 1;
-        layout: horizontal;
-        margin-top: 0;
-        margin-bottom: 0;
-    }
-    .hint-footer {
-        margin-top: 0;
-    }
-    .action-bar {
-        margin-top: 1;
-        margin-bottom: 0;
-    }
-    """
 
-    class YtdStudioApp(PyKuaiStudioApp):
-        CSS = media_css
+    class YtdStudioApp(ToolStudioApp):
+        AUTO_FOCUS = "#url-input"
+        CSS = ToolStudioApp.CSS + """
+        #cookie-note {
+            color: #f59e0b;
+            height: auto;
+        }
+        Screen.narrow #ck-file, Screen.narrow #btn-login {
+            column-span: 2;
+            width: 100%;
+        }
+        """
         HELP_TITLE = YTD_HELP_TITLE
         HELP_TEXT = YTD_HELP_TEXT
 
@@ -385,7 +325,7 @@ def _build_ytd_studio_app(
             status_cls = "status-ok" if ok else ("status-err" if init_clean else "status-dim")
 
             with Container(id="studio-card"):
-                yield StudioHeader("🎬 ytd  [dim #6b7280]·  yt-dlp[/]")
+                yield StudioHeader.for_tool("ytd", "YouTube Download")
                 with VerticalScroll(id="studio-scroll"):
 
                     with Horizontal(classes="field-header"):
@@ -400,39 +340,39 @@ def _build_ytd_studio_app(
                     )
 
                     with Horizontal(classes="compact-tight option-row"):
-                        yield Static("Video: ", classes="field-label")
+                        yield Static("Video", classes="field-label")
                         yield ToggleChip("Best", value="best", active=(init_fmt_norm == "best"), id="fmt-best")
                         yield ToggleChip("1080p", value="1080p", active=(init_fmt_norm == "1080p"), id="fmt-1080p")
                         yield ToggleChip("720p", value="720p", active=(init_fmt_norm == "720p"), id="fmt-720p")
 
                     with Horizontal(classes="compact-row option-row"):
-                        yield Static("Audio: ", classes="field-label")
+                        yield Static("Audio", classes="field-label")
                         yield ToggleChip("MP3", value="mp3", active=(init_fmt_norm == "mp3"), id="fmt-mp3")
                         yield ToggleChip("M4A", value="m4a", active=(init_fmt_norm == "m4a"), id="fmt-m4a")
 
                     with Horizontal(classes="compact-row option-row"):
-                        yield Static("Scope:", classes="field-label")
+                        yield Static("Scope", classes="field-label")
                         yield ToggleChip("Single", value="single", active=(not initial_playlist), id="scope-single")
                         yield ToggleChip("Playlist", value="playlist", active=bool(initial_playlist), id="scope-playlist")
                         yield ToggleChip("Subs", value="subs", active=bool(initial_subs), id="opt-subs")
 
                     with Horizontal(classes="compact-tight option-row"):
-                        yield Static("Cookie:", classes="field-label")
+                        yield Static("Cookies", classes="field-label")
                         yield ToggleChip("None", value="none", active=(not detected_cookie), id="ck-none")
                         yield ToggleChip("Chrome", value="chrome", active=False, id="ck-chrome")
                         yield ToggleChip("Edge", value="edge", active=False, id="ck-edge")
                         yield ToggleChip("Firefox", value="firefox", active=False, id="ck-firefox")
 
                     with Horizontal(classes="compact-row option-row"):
-                        yield Static("      ", classes="field-label")
+                        yield Static("", classes="field-label continuation")
                         yield ToggleChip("cookies.txt", value="file", active=bool(detected_cookie), id="ck-file")
                         yield ActionChip("Login YouTube", variant_class="-file", id="btn-login")
 
                     with Horizontal(
                         id="cookies-row",
-                        classes="slim-row" if detected_cookie else "slim-row hidden-section",
+                        classes="compact-tight" if detected_cookie else "compact-tight hidden-section",
                     ):
-                        yield Static("File: ", classes="field-label")
+                        yield Static("File", classes="field-label")
                         yield Input(
                             value=detected_cookie,
                             placeholder="path/to/cookies.txt (~/.pykuai/cookies.txt)",
@@ -443,12 +383,12 @@ def _build_ytd_studio_app(
                     yield Static(
                         "⚠ Windows Chrome/Edge locks cookie DB while running; use Login YouTube or Firefox instead.",
                         id="cookie-note",
-                        classes="cookie-warn hidden-section",
+                        classes="hidden-section",
                         markup=False,
                     )
 
                     with Horizontal(classes="compact-tight"):
-                        yield Static("Dir:  ", classes="field-label")
+                        yield Static("Output", classes="field-label")
                         yield Input(
                             value=init_out,
                             placeholder=".",
@@ -456,8 +396,8 @@ def _build_ytd_studio_app(
                             classes="cyber-slim",
                         )
 
-                    with Horizontal(classes="slim-row"):
-                        yield Static("Proxy:", classes="field-label")
+                    with Horizontal(classes="compact-tight"):
+                        yield Static("Proxy", classes="field-label")
                         yield Input(
                             value=init_proxy_clean,
                             placeholder="http://127.0.0.1:7897 (optional)",
@@ -468,28 +408,22 @@ def _build_ytd_studio_app(
                     yield Static(
                         f"{ytdlp_lbl} · {ffmpeg_lbl} · {js_lbl}",
                         id="engine-info",
-                        classes="hint-footer",
+                        classes="studio-note",
                         markup=False,
                     )
 
                 yield Static("", id="form-error", classes="hidden-err", markup=False)
 
                 with Horizontal(classes="action-bar"):
-                    yield ActionChip("⚡ Run", variant_class="-primary", id="btn-run")
+                    yield ActionChip("⚡ Download", variant_class="-primary", id="btn-run")
                     yield ActionChip("Formats", variant_class="-preset", id="btn-probe")
                     yield ActionChip("✕ Cancel", variant_class="-danger", id="btn-cancel")
 
         def on_mount(self) -> None:
-            self.screen.set_class(self.size.width < 76, "narrow")
             if initial_error:
                 self._set_error(initial_error)
             if init_clean:
                 self.query_one("#btn-run", ActionChip).focus()
-            else:
-                self.query_one("#url-input", Input).focus()
-
-        def on_resize(self, event) -> None:
-            self.screen.set_class(event.size.width < 76, "narrow")
 
         def _set_error(self, message: str = "") -> None:
             err = self.query_one("#form-error", Static)

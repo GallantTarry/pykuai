@@ -169,12 +169,12 @@ def _pick_highest_res_frame(im):
     return im.copy()
 
 
-IFC_HELP_TITLE = "ifc · Image Format Converter Guide"
+IFC_HELP_TITLE = "ifc · Image Format Converter"
 IFC_HELP_TEXT = """[bold #FF9800]Overview[/]
 Powered by Pillow (`PIL`), [bold #00FF00]ifc[/] converts images across 8 target formats and packages multi-resolution Windows `.ico` icon containers with atomic file writes.
 
 [bold #FF9800]Supported Formats[/]
-• [bold #00FF00]Target (`To:`)[/]: `ICO`, `PNG`, `JPG`, `WEBP`, `BMP`, `GIF`, `TIFF`, `AVIF`
+• [bold #00FF00]Format[/]: `ICO`, `PNG`, `JPG`, `WEBP`, `BMP`, `GIF`, `TIFF`, `AVIF`
 • [bold #00FF00]Additional Input Sources[/]: `JPEG`, `TIF`, `ICNS`, `TGA`, `PPM`, `DDS`, `PSD`
 • [bold #00FF00]Multi-Frame Sources[/]: Automatically extracts the highest-resolution layer from `ICO`/`ICNS` inputs; converts the first frame of multi-frame GIF/TIFF files.
 • [bold #00FF00]Orientation & Alpha[/]: Applies EXIF orientation automatically; composites transparent pixels (`RGBA`/`LA`/`P`) onto solid white when saving to `JPG` or `BMP`.
@@ -182,7 +182,7 @@ Powered by Pillow (`PIL`), [bold #00FF00]ifc[/] converts images across 8 target 
 [bold #FF9800]Source & Output Controls[/]
 • [bold #00FF00]Image Input[/]: Type, paste, or drag-and-drop any image path (surrounding quotes and `~` are cleaned automatically). Live header probing shows `width × height · format`.
 • [bold #00FF00]Files[/]: Lists up to 5 image files discovered in the current working directory for 1-click loading.
-• [bold #00FF00]Out[/]: Optional output file path. Leave blank to save beside the source (`<source>.<ext>`, or `<source>_converted.<ext>` if the path matches the source). Writes via a temporary sibling file and atomically replaces on success.
+• [bold #00FF00]Output[/]: Optional output file path. Leave blank to save beside the source (`<source>.<ext>`, or `<source>_converted.<ext>` if the path matches the source). Writes via a temporary sibling file and atomically replaces on success.
 
 [bold #FF9800]ICO Icon Packaging Options[/]
 • [bold #00FF00]Presets[/]: `Std` (`16,32,48,64,128,256`), `All` (`16,20,24,32,40,48,64,128,256`), `Web` (`16,32,48`).
@@ -190,7 +190,7 @@ Powered by Pillow (`PIL`), [bold #00FF00]ifc[/] converts images across 8 target 
 • [bold #00FF00]Sharpen ≤32px[/]: Applies subtle `UnsharpMask` edge sharpening to tiny layers (`<= 32px`) for sharper taskbar/favicon rendering.
 
 [bold #FF9800]Lossy Quality (`JPG` / `WEBP` / `AVIF`)[/]
-• [bold #00FF00]Qual[/]: Choose `80%`, `90%`, `92%`, `95%`, or `100%` (CLI `-q 1..100`, default `92`).
+• [bold #00FF00]Quality[/]: Choose `80%`, `90%`, `92%`, `95%`, or `100%` (CLI `-q 1..100`, default `92`).
 
 [bold #FF9800]CLI & REPL Usage[/]
 • `pykuai tt ifc` — Open interactive Studio (falls back to Rich prompts in non-TUI TTY)
@@ -204,23 +204,9 @@ def _build_ifc_studio_app(initial_path: str = ""):
     from textual.app import ComposeResult
     from textual.containers import Container, Horizontal, Vertical, VerticalScroll
     from textual.widgets import Button, Input, Static
-    from pykuai.core.tui import ActionChip, PyKuaiStudioApp, StudioHeader, ToggleChip
+    from pykuai.core.tui import ActionChip, StudioHeader, ToggleChip, ToolStudioApp
 
     extra_css = """
-    #studio-card {
-        height: 24;
-        padding: 0 1;
-    }
-    #studio-scroll {
-        height: 1fr;
-        min-height: 1;
-    }
-    .studio-title, .shown-err {
-        height: auto;
-    }
-    .shown-err {
-        max-height: 3;
-    }
     .local-files {
         height: auto;
         margin-bottom: 1;
@@ -231,45 +217,21 @@ def _build_ifc_studio_app(initial_path: str = ""):
         content-align: left middle;
         margin-right: 0;
     }
-    Screen.narrow .option-row {
-        layout: grid;
-        grid-size: 2;
-        grid-columns: 1fr;
-        grid-rows: 1;
-        grid-gutter: 0 1;
-        height: auto;
-    }
-    Screen.narrow .option-row .field-label,
     Screen.narrow #opt-sharpen {
         column-span: 2;
-    }
-    Screen.narrow #opt-sharpen {
         width: 100%;
-    }
-    Screen.narrow .option-row ToggleChip,
-    Screen.narrow .option-row ActionChip {
-        width: 1fr;
-        min-width: 0;
-        margin-right: 0;
-    }
-    .action-bar ActionChip {
-        width: 1fr;
-        min-width: 0;
-        padding: 0 1;
     }
     #ico-section {
         height: auto;
-    }
-    .hidden-section {
-        display: none;
     }
     """
 
     local_images = _discover_local_images(limit=5)
     init_clean = os.path.abspath(_clean_path(initial_path)) if _clean_path(initial_path) else ""
 
-    class IfcStudioApp(PyKuaiStudioApp):
-        CSS = PyKuaiStudioApp.CSS + extra_css
+    class IfcStudioApp(ToolStudioApp):
+        AUTO_FOCUS = "#src-input"
+        CSS = ToolStudioApp.CSS + extra_css
         HELP_TITLE = IFC_HELP_TITLE
         HELP_TEXT = IFC_HELP_TEXT
 
@@ -279,7 +241,7 @@ def _build_ifc_studio_app(initial_path: str = ""):
             default_set = set(STANDARD_ICO_SIZES)
 
             with Container(id="studio-card"):
-                yield StudioHeader("🎨 ifc  [dim #6b7280]·  Image Format Converter[/]")
+                yield StudioHeader.for_tool("ifc", "Image Format Converter")
                 with VerticalScroll(id="studio-scroll"):
 
                     with Horizontal(classes="field-header"):
@@ -288,14 +250,14 @@ def _build_ifc_studio_app(initial_path: str = ""):
 
                     yield Input(
                         value=init_clean,
-                        placeholder="Path or drop image (png, jpg, webp, bmp, gif, tiff, avif, ico)...",
+                        placeholder="Drop an image or enter its path",
                         id="src-input",
                         classes="cyber-input",
                     )
 
                     if local_images:
                         with Vertical(classes="local-files"):
-                            yield Static("Files:", classes="field-label")
+                            yield Static("Files", classes="field-label")
                             for idx, img_p in enumerate(local_images):
                                 yield ActionChip(
                                     escape(os.path.basename(img_p)),
@@ -307,41 +269,41 @@ def _build_ifc_studio_app(initial_path: str = ""):
 
                     fmt_keys = list(FORMAT_SPECS.keys())
                     with Horizontal(classes="compact-tight option-row"):
-                        yield Static("To:   ", classes="field-label")
+                        yield Static("Format", classes="field-label")
                         for key in fmt_keys[:4]:
                             spec = FORMAT_SPECS[key]
                             yield ToggleChip(spec.label, value=key, active=(key == "ico"), id=f"fmt-{key}")
                     with Horizontal(classes="compact-row option-row"):
-                        yield Static("      ", classes="field-label")
+                        yield Static("", classes="field-label continuation")
                         for key in fmt_keys[4:]:
                             spec = FORMAT_SPECS[key]
                             yield ToggleChip(spec.label, value=key, active=False, id=f"fmt-{key}")
 
                     with Vertical(id="ico-section"):
                         with Horizontal(classes="compact-tight option-row"):
-                            yield Static("ICO:  ", classes="field-label")
+                            yield Static("Presets", classes="field-label")
                             yield ActionChip("Std", value=STANDARD_ICO_SIZES, variant_class="-preset", id="pre-std")
                             yield ActionChip("All", value=ALL_ICO_SIZES, variant_class="-preset", id="pre-all")
                             yield ActionChip("Web", value=FAVICON_ICO_SIZES, variant_class="-preset", id="pre-fav")
                             yield ToggleChip("Sharpen ≤32px", value="sharpen", active=True, id="opt-sharpen")
 
                         with Horizontal(classes="compact-tight option-row"):
-                            yield Static("Sizes:", classes="field-label")
+                            yield Static("Sizes", classes="field-label")
                             for s in ALL_ICO_SIZES[:5]:
                                 yield ToggleChip(str(s), value=s, active=(s in default_set), id=f"sz-{s}")
                         with Horizontal(classes="compact-row option-row"):
-                            yield Static("      ", classes="field-label")
+                            yield Static("", classes="field-label continuation")
                             for s in ALL_ICO_SIZES[5:]:
                                 yield ToggleChip(str(s), value=s, active=(s in default_set), id=f"sz-{s}")
                             yield Static(f"{len(STANDARD_ICO_SIZES)}", id="layer-count", classes="status-ok")
 
                     with Horizontal(id="quality-section", classes="compact-row option-row hidden-section"):
-                        yield Static("Qual: ", classes="field-label")
+                        yield Static("Quality", classes="field-label")
                         for q in (80, 90, 92, 95, 100):
                             yield ToggleChip(f"{q}%", value=q, active=(q == 92), id=f"qual-{q}")
 
                     with Horizontal(classes="compact-tight"):
-                        yield Static("Out:  ", classes="field-label")
+                        yield Static("Output", classes="field-label")
                         yield Input(
                             placeholder="<source>.ico",
                             id="out-input",
@@ -355,12 +317,8 @@ def _build_ifc_studio_app(initial_path: str = ""):
                     yield ActionChip("✕ Cancel", variant_class="-danger", id="btn-cancel")
 
         def on_mount(self) -> None:
-            self.screen.set_class(self.size.width < 76, "narrow")
             if init_clean:
                 self.query_one("#btn-run", ActionChip).focus()
-
-        def on_resize(self, event) -> None:
-            self.screen.set_class(event.size.width < 76, "narrow")
 
         def _active_format(self) -> str:
             for chip in self.query(ToggleChip):
@@ -527,6 +485,7 @@ def _launch_ifc_studio(initial_path: str = "") -> tuple[str, str, list[int], str
 
 class IfcEngine(BaseEngine):
     name = "ifc"
+    drop_extensions = IMAGE_EXTENSIONS
     description = "Image Format Converter (Pillow)"
     usage = "tt ifc | tt ifc <image> [-t fmt] [-s sizes] [-o output]"
     category = "Media & Image"

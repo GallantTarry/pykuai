@@ -106,6 +106,7 @@ pykuai/
     ├── engines/                # Plug-and-play 3-letter tool engines
     │   ├── __init__.py         # Engines package marker
     │   ├── ifc.py              # ifc: Image Format Converter & multi-resolution ICO packer
+    │   ├── ghv.py              # ghv: GitHub Video optimizer for local clips
     │   └── ytd.py              # ytd: YouTube & media downloader (yt-dlp + FFmpeg)
     ├── assets/                 # Visual & audio assets
     │   ├── icon.ico            # High-DPI multi-resolution application icon
@@ -144,6 +145,7 @@ pykuai/
 
 4. **Built-In Engines (`pykuai/engines/`)**
    * **[ifc.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ifc.py)** (`ifc` — *Image Format Converter*)
+   * **[ghv.py](pykuai/engines/ghv.py)** (`ghv` — *GitHub Video*)
    * **[ytd.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ytd.py)** (`ytd` — *YouTube Download*)
 
 ---
@@ -161,6 +163,14 @@ pykuai/
 * **Scope, Subtitles & Probing**: Switch cleanly between `Single` (`--no-playlist`, even with `&list=`) and `Playlist` (`--yes-playlist`), download & embed English/Chinese captions (`--subs`), or inspect all available streams without downloading (`-F` / `Formats`).
 * **Extension-Free `Login YouTube` (`--login`)**: Windows Chrome/Edge (`127+`) locks its cookie DB (`yt-dlp #7271`) and enforces App-Bound Encryption (`#10927`). Click **`Login YouTube`** in Studio (or run `pykuai tt ytd --login`) to sign in inside an isolated browser profile (`~/.pykuai/yt-session`)—PyKuai captures the authenticated session automatically into `~/.pykuai/cookies.txt` without touching your personal browser or needing third-party extensions. Interactive downloads hitting YouTube's sign-in gate also offer to open this login flow and retry immediately.
 * **Smart Resilience & On-Demand FFmpeg**: Automatically wires `ejs:github` challenge solving when Node/Deno is installed, prefers bundled `yt-dlp.exe` when Python `yt-dlp` lacks `curl_cffi`, auto-detects `cookies.txt` across save/working dirs, `~/.pykuai/cookies.txt`, and `~/Downloads`, and prompts to install SHA256-verified Windows FFmpeg/FFprobe binaries into `~/.pykuai/tools/` (`--install-ffmpeg`) whenever missing.
+
+### 3. `ghv` — GitHub Video
+
+Drop a local video into the PyKuai prompt and press Enter to use the defaults. To adjust settings, select `ghv` in the Tool Tray, then drop the video into its source field. The result is saved next to the source as `<name>_mobile.mp4`.
+
+* **Video.** The MP4 fits inside 1280×720 and preserves the display aspect ratio, including portrait and 4:3 footage. It uses H.264 High Profile, Level 3.1 (`avc1`), 8-bit `yuv420p`, and a front-loaded `moov` index for streaming. The encoder adapts to the available bitrate and checks that the file is strictly smaller than 100,000,000 bytes before saving.
+* **Audio.** When the source has audio, the default target is −14 LUFS integrated with a true-peak target of −1.5 dBTP. Audio is saved as 48 kHz AAC-LC stereo (`mp4a`). Silent tracks stay silent.
+* **Watermarks.** Automatic detection looks for fixed or position-switching logos across moving scenes. FFmpeg interpolates the marked area from surrounding pixels. Use `--analyze` to inspect detected regions or `--wm-box X:Y:W:H` to specify a missed logo in source pixels.
 
 ---
 
@@ -198,6 +208,10 @@ pykuai tt
 # Image format conversion & multi-layer .ico generation (ifc)
 pykuai tt ifc logo.png -t webp -q 90
 pykuai tt ifc logo.png -t ico -s 16,32,48,256 -o app.ico
+
+# Prepare a video for sharing, or use a smaller size limit
+pykuai tt ghv "my clip.mov"
+pykuai tt ghv "my clip.mov" --max-mb 25 --lufs -16 -o preview.mp4
 
 # YouTube & media download, stream probing, login & FFmpeg setup (ytd)
 pykuai tt ytd "https://www.youtube.com/watch?v=..." -f best

@@ -32,6 +32,7 @@ from pykuai.core.ui import (
     register_console_restore_hook,
 )
 from pykuai.core.registry import load_all_engines, get_engine
+from pykuai.core.tray import match_dropped_file, run_tool_tray
 
 # Ensure terminal icon & title are always restored on exit
 atexit.register(restore_terminal_identity)
@@ -812,8 +813,6 @@ def run_interactive_console(skip_intro: bool = False):
                 continue
 
             if cmd_lower == "tt" or cmd_lower.startswith("tt "):
-                from pykuai.core.tray import run_tool_tray
-
                 try:
                     tt_args = [_strip_quotes(tok) for tok in shlex.split(cmd, posix=(os.name != "nt"))[1:]]
                 except Exception:
@@ -841,22 +840,13 @@ def run_interactive_console(skip_intro: bool = False):
                 console.print()
                 continue
 
-            # Auto drag-and-drop detection: dropping an image triggers Image Format Converter (`ifc`)
-            raw_path = _strip_quotes(cmd)
-            image_drop_exts = (
-                ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".ico",
-                ".tiff", ".tif", ".gif", ".avif", ".icns", ".tga", ".ppm", ".dds", ".psd",
-            )
-            if any(raw_path.lower().endswith(ext) for ext in image_drop_exts):
-                if os.path.exists(raw_path):
-                    eng = get_engine("ifc")
-                    if eng:
-                        from pykuai.core.tray import run_tool_tray
-
-                        console.print("[dim]› Image drop detected, opening ifc (Image Format Converter)...[/dim]")
-                        run_tool_tray(console, cli_args=["ifc", raw_path], interactive=True)
-                        console.print()
-                        continue
+            dropped = match_dropped_file(cmd, load_all_engines())
+            if dropped:
+                engine, path = dropped
+                console.print(f"[dim]› File drop detected, opening {engine.name}...[/dim]")
+                run_tool_tray(console, cli_args=[engine.name, path], interactive=True)
+                console.print()
+                continue
 
             try:
                 tokens = [_strip_quotes(tok) for tok in shlex.split(cmd, posix=(os.name != "nt"))]
@@ -900,8 +890,6 @@ def run_direct_cli():
             return
 
         if first_arg == "tt":
-            from pykuai.core.tray import run_tool_tray
-
             apply_terminal_identity("pykuai")
             try:
                 exit_code = run_tool_tray(console, cli_args=sys.argv[2:] or None, interactive=False)
