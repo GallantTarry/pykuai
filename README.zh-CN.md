@@ -14,7 +14,7 @@
 * **零配置微内核架构**：在 `pykuai/engines/` 中放入任意符合三位纯小写字母命名规范（`^[a-z]{3}$`）并继承 [`BaseEngine`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/base.py) 的 `.py` 模块，PyKuai 即可零样板代码自动扫描识别，并自动接入工具托盘（`tt`）、CLI 子命令路由与依赖检测（`pp`）。
 * **双层指令人体工学**：
   * **两位叠字全局指令**（`tt`、`pp`、`xp`、`cc`）配合 `help` / `gg`：形成极快的肌肉记忆终端导航。
-  * **三位字母工具引擎**（`ifc`、`ytd` 等）：为每款工具提供清晰、互不冲突的独立命名空间。
+  * **三位字母工具引擎**（`ifc`、`ghv`、`ytd` 等）：为每款工具提供清晰、互不冲突的独立命名空间。
 * **交互与静默双模式并行 + 内置使用手册**：所有工具既可通过鼠标可点击的 **Rich / Textual** 赛博暗黑交互面板运行（按 `?` 或 `F1`，或点击右上角 `?` 即可弹出完整的英文功能详解弹窗），也可直接在 Shell 与自动化脚本中传参直调。
 * **虚拟 CRT Windows XP 游乐场（`xp`）**：从 3D 卧室潜行开机过场直达虚拟 Windows XP Bliss 桌面，内置 `HEX 3D` 与基于本地 Edge/Chrome CDP 驱动的**原生 IE 6 真实浏览器**（支持终端内 **Sixel HD** 真像素实时投影）。
 * **赛博触感与界面英语化**：自带 ASCII Banner、可选的高 DPI 桌面像素贪吃蛇开场动画（`--fast` 跳过）、Windows Terminal 标题与图标退出还原、图片拖入自动识别、以及可持久化开关的复古 CC0 街机音效（保存至 `~/.pykuai/settings.json`）；运行时界面与指令保持简洁英文，便于对接上游生态并面向全球社区分享。
@@ -34,6 +34,7 @@ flowchart TD
     subgraph S2["2. 交互面板、三字母引擎与依赖管理层"]
         Reg -->|"tt 工具托盘 / CLI 参数"| TUI["tui.py & tray.py 赛博暗黑交互框"]
         TUI -->|"拖图识别 / 面板 / 传参"| IFC["engines/ifc.py Pillow + UnsharpMask"]
+        TUI -->|"拖视频 / 去水印 / 98 MiB"| GHV["engines/ghv.py FFmpeg + NumPy H.264"]
         TUI -->|"流媒体解析 / 字幕 / 混流"| YTD["engines/ytd.py yt-dlp + FFmpeg"]
         CLI -->|"pp AST 与 pyproject 审计"| Deps["core/deps.py 全局依赖管理器"]
         YTD -.->|"Cookie 加密锁库兜底"| Auth["core/yt_auth.py 隔离浏览器登录"]
@@ -49,6 +50,7 @@ flowchart TD
 
     subgraph S4["4. 产物输出与本地状态持久化"]
         IFC --> OutFiles["转换图像与多尺寸 ICO 图标"]
+        GHV --> OutVideo["全兼容 H.264 MP4 视频 (<= 98 MiB)"]
         YTD --> OutMedia["合成 MP4 / MP3 / 双语字幕"]
         Room --> LocalState["~/.pykuai/settings.json 与 ie6_bookmarks.json"]
         Auth --> Cookies["~/.pykuai/cookies.txt 与 yt-session"]
@@ -62,7 +64,7 @@ flowchart TD
 | 阶段 | 数据流向（从哪到哪） | 采用的核心专业技术 | 具体完成的工作 |
 | :--- | :--- | :--- | :--- |
 | **1. 控制台与 REPL 调度** | 终端输入 → [`cli.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/cli.py) → [`registry.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/registry.py) / [`tray.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tray.py) | `Win32 ReadConsoleInputW`、`SGR Mouse`、`Rich`、`^[a-z]{3}$` 反射加载 | 绘制像素贪吃蛇开场与 Banner，捕获原始键鼠/粘贴突发事件并播放 CC0 WAV 音效，自动注册并分发全局双字母指令与三字母插件。 |
-| **2. 工具引擎与依赖体系** | [`tray.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tray.py) / CLI → [`ifc.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ifc.py) / [`ytd.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ytd.py) / [`deps.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/deps.py) | `Pillow`、`UnsharpMask`、`yt-dlp`、`FFmpeg`、SHA256 校验、隔离 Chromium Cookie 提取 | 原子化转换图像与打包多分辨率 `.ico`；支持免扩展登录 YouTube 解决 127+ 锁库加密并按需校验安装 FFmpeg；结合 AST 与 `pyproject.toml` 管理环境依赖。 |
+| **2. 工具引擎与依赖体系** | [`tray.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tray.py) / CLI → [`ifc.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ifc.py) / [`ghv.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ghv.py) / [`ytd.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ytd.py) / [`deps.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/deps.py) | `Pillow`、`UnsharpMask`、`NumPy`、`yt-dlp`、`FFmpeg`、SHA256 校验、隔离 Chromium Cookie 提取 | 原子化转换图像与打包多分辨率 `.ico`；自动识别并消除四角/边缘水印，输出 `≤ 98 MiB` 全兼容 H.264 MP4 并执行 `-14 LUFS` 响度强校验；支持免扩展登录 YouTube 并按需校验安装 FFmpeg；结合 AST 与 `pyproject.toml` 管理环境依赖。 |
 | **3. XP CRT 与桌面引擎** | [`launcher.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/launcher.py) → [`room3d.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/room3d.py) → [`hex3d.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/hex3d.py) | `Textual`、2x2 四象限亚像素画布、合成降 E 大调 XP 启动和弦 | 播放 3D 卧室开机过场，呈现含 `Bliss` 壁纸与精简 `START -> OFF` 菜单的 Windows XP 桌面，并在终端内原生运行 `HEX 3D` 与 IE 6。 |
 | **4. 原生 IE 6 与 Sixel HD 投影** | [`room3d.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/room3d.py) ↔ [`ie6.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/ie6.py) ↔ 本地 Edge/Chrome ↔ 终端屏幕 | `CDP WebSocket`（`Page.startScreencast`）、`CSI 16t` / `DA1`、`numpy` `P2=1` Sixel、`\x1b[?2026h` 同步输出、`DECSCUSR` | 异步接收实时网页帧并过滤空闲光标闪烁与重复负载；通过原子同步输出消除焦点切换导致的黑屏闪烁，并将细竖线光标动态锚定在网页点击位置以修复中文输入法偏移问题。 |
 
@@ -106,6 +108,7 @@ pykuai/
     ├── engines/                # 即插即用三字母功能引擎层
     │   ├── __init__.py         # engines 包标识文件
     │   ├── ifc.py              # ifc: 图像格式转换与多分辨率 ICO 图标容器打包工具
+    │   ├── ghv.py              # ghv: 移动端/GitHub 通用视频优化与四角自动去水印工具（<= 98 MiB）
     │   └── ytd.py              # ytd: YouTube 及主流平台音视频下载提取工具（yt-dlp + FFmpeg）
     ├── assets/                 # 视觉图标与音频静态资源
     │   ├── icon.ico            # 高 DPI 多尺寸应用图标
@@ -144,6 +147,7 @@ pykuai/
 
 4. **内置工具引擎层（`pykuai/engines/`）**
    * **[ifc.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ifc.py)**（`ifc` — *Image Format Converter*）
+   * **[ghv.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ghv.py)**（`ghv` — *GitHub Video*）
    * **[ytd.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ytd.py)**（`ytd` — *YouTube Download*）
 
 ---
@@ -161,6 +165,34 @@ pykuai/
 * **范围控制、双语字幕与流探测**：一键切换 `Single`（单集，即使链接含 `&list=` 也强制 `--no-playlist`）与 `Playlist`（整张列表 `--yes-playlist`）；支持下载并内嵌中英双语字幕（`--subs`）；支持 `-F` / `Formats` 仅探测可用画质与音轨而不下载。
 * **免扩展一键登录 `Login YouTube`（`--login`）**：针对 Windows 版 Chrome / Edge（127+）运行时锁库（`yt-dlp #7271`）及 App-Bound 加密限制（`#10927`），点击界面上的 **`Login YouTube`**（或执行 `pykuai tt ytd --login`）即可弹出隔离配置目录（`~/.pykuai/yt-session`）的官方登录页，登录后自动保存 `~/.pykuai/cookies.txt`——不碰个人主浏览器数据、无需安装任何浏览器扩展。交互下载遇到 YouTube 登录/人机拦截时也会主动询问弹出登录并紧接着自动重试。
 * **高可用解析与 FFmpeg 按需安装（`--install-ffmpeg`）**：检测到 Node.js / Deno 时自动启用 `ejs:github` JS 挑战求解；当 Python 环境缺少 `curl_cffi` 时优先调度内置 `yt-dlp.exe`；自动识别保存目录、工作目录、`~/.pykuai/cookies.txt` 与 `~/Downloads` 中的 Cookie 文件；本地缺失 FFmpeg 时交互提示一键下载官方版本并做 SHA256 校验安装至 `~/.pykuai/tools/`。
+
+### 3. `ghv` — 移动端与 GitHub 通用视频优化（GitHub Video）
+
+在 PyKuai 提示符直接拖入本地视频并回车即可按默认参数一键处理，或在工具托盘 `tt` 中打开 `ghv` 面板自定义配置。成品经严格校验后通过原子替换写入源视频同目录，命名为 `<原文件名>_mobile.mp4`。
+
+#### 视频输出黄金参数规格表
+
+| 核心指标 | 黄金参数配置 | 优势与原因 |
+| :--- | :--- | :--- |
+| **视频编码 (Codec)** | **H.264 / AVC (`avc1`)** | 全球兼容性 99.99%，所有移动端与桌面 GPU 原生支持硬件解码。 |
+| **Profile (配置档次)** | **High Profile (`-8x8dct 1`)** | 画质细腻、压缩效率远高于 Baseline，且无画面色彩断层。 |
+| **Level (编码级别)** | **Level 3.1** | 严格遵循 ITU-T H.264 表 A-1 规范（单帧 `≤ 3,600` 宏块、速率 `≤ 108,000` 宏块/秒、峰值 `≤ 17.5 Mbps`），向下兼容 10 年前的老旧芯片且发热量极低。 |
+| **像素格式 (Pix Fmt)** | **8-bit `yuv420p` (BT.709)** | 坚决避开移动端无法硬解的 10-bit 或 4:2:2 / 4:4:4；遇到 HDR（PQ/HLG）源片自动通过 `zscale + tonemap(Hable)` 映射为 8-bit SDR，并补全 BT.709 完整色彩元数据。 |
+| **音频编码与响度** | **AAC-LC 48 kHz 立体声 (`mp4a`) · `-14 LUFS`** | HTML5 `<video>` 跨浏览器全通标准音轨；默认执行两遍 EBU R128 响度归一化（`-14 LUFS`、`-1.5 dBTP` 真峰值保护）及编码后 AAC 强校验（无音轨视频保持静音）。 |
+| **流式播放标记** | **`+faststart` (`moov` 前置)** | 将 `moov` 索引移至 `mdat` 之前（编码后解析 MP4 原子逐字节核验），实现移动端边下载边播放、秒开拖动。 |
+| **分辨率策略** | **自适应 720P（长边 `≤ 1280`，短边 `≤ 720`）** | 横屏 `16:9` → `1280×720`、竖屏 `9:16` → `720×1280`（同为 3,600 宏块，完全合规 Level 3.1）、`4:3` → `960×720` 且统一 `SAR 1:1`；严禁拉伸 4:3 或放大低分辨率原片。 |
+| **体积硬上限** | **`≤ 98 MiB`（二进制，`102,760,448` 字节）** | 默认死卡 `98 MiB`（面板支持 `98 / 50 / 25 MiB`，CLI 支持 `--max-mb 1..98`），结合有顶 CRF、二遍 ABR 与超限自动降档重试保证绝不超标。 |
+
+#### 视频全链路处理列表
+
+* **1. 源片探测与几何归一化**：调用 `ffprobe` 自动识别旋转角度（`side_data` / `rotate`）、非正方形像素纵横比（SAR）与 HDR 传输特性；自动将超出 Level 3.1 能力的帧率整除降档（如 `60 → 30 fps`、`50 → 25 fps`）。
+* **2. 精准四角/边缘自动查水印与消除（`--wm auto`）**：
+  * **高速自适应抽帧与滑窗检测**：`≤ 45s` 短片走单进程流式灰度管道高速抽帧，长片走多路并发定位抽帧；通过全片 + 重叠滑动时间窗覆盖常驻水印与中途跳角水印（如短视频平台切角角标）。
+  * **兼顾实心不透明台标与半透明角标**：对实心台标通过“外围背景运动 + 内部冻结”判定避免误杀，对淡色半透明水印通过封顶自适应梯度阈值、各向异性膨胀与邻近框合并防止碎裂与闪烁；严格限定四角/边缘区域，保护画面中央主体不被误伤。
+  * **可视化预览与手动精准框选**：使用 FFmpeg `delogo` 自动平滑填充检出区域；支持 `--analyze` 仅分析打印计划、`--show-wm` 输出绿框预览片，以及可重复传入的 `--wm-box X:Y:W:H`（按显示画面坐标填写，自动兼容非 1:1 SAR 坐标换算）。
+* **3. 响度归一化与编码后强校验**：默认执行两遍 EBU R128 `loudnorm`（`-14 LUFS`，可在界面切 `-16 LUFS` 或 `Off` / `--no-loudnorm`），编码完成后自动解码验证实测响度与真峰值，超标时自动启用前瞻瞬态限幅并仅重混音轨（视频流零损直拷）。
+* **4. 智能码率规划与超限降档重试**：短片自动走高质量有顶 CRF（`-crf 14`），长片/小体积目标自动切二遍 ABR 并按需逐级下调分辨率与帧率；若候选成品仍超 `98 MiB`，自动扣除超出码率并联动降分辨率/帧率/音频码率重试，全程在同盘临时目录完成，通过后 `os.replace` 原子落盘。
+* **5. 成品强制全项核验**：落盘前逐一核验 `h264 (avc1)`、`High`、`Level 3.1`、`yuv420p`、分辨率与 `SAR 1:1`、宏块帧率、`AAC-LC mp4a 48 kHz 立体声`、`moov` 前置、响度及 `≤ 98 MiB` 字节数，任一项不通过绝不覆盖目标文件。
 
 ---
 
@@ -185,7 +217,7 @@ pykuai --fast
 | `xp` | **XP Playground** | 启动 3D 过场动画与虚拟 Windows XP CRT（内置 `HEX 3D` 与 `IE 6` 浏览器） |
 | `cc` | **Clear Console** | 清屏并重绘 Cyber-Dark 欢迎横幅与全局状态栏 |
 
-> 💡 **效率技巧**：在控制台提示符处直接拖入或粘贴图片文件路径，会自动唤醒 `ifc` 并预填好该图片路径。
+> 💡 **效率技巧**：在控制台提示符处直接拖入或粘贴图片或视频文件路径，会自动唤醒 `ifc`（图片）或 `ghv`（视频）并预填好该文件路径。
 
 ### 2. 直接命令行模式（CLI）
 
@@ -198,6 +230,13 @@ pykuai tt
 # 图像格式转换与多尺寸 ICO 图标打包（ifc）
 pykuai tt ifc logo.png -t webp -q 90
 pykuai tt ifc logo.png -t ico -s 16,32,48,256 -o app.ico
+
+# 移动端/GitHub 通用视频优化与自动去水印（ghv，默认 <= 98 MiB，-14 LUFS）
+pykuai tt ghv "my clip.mov"
+pykuai tt ghv "my clip.mov" --max-mb 50 --lufs -16 -o preview.mp4
+pykuai tt ghv "my clip.mov" --analyze
+pykuai tt ghv "my clip.mov" --show-wm
+pykuai tt ghv "my clip.mov" --wm-box 20:20:260:90
 
 # 音视频下载、流信息探测、一键登录 YouTube 与安装 FFmpeg（ytd）
 pykuai tt ytd "https://www.youtube.com/watch?v=..." -f best

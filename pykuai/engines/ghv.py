@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 GitHub Video (`ghv`) prepares a local video for sharing as a mobile-friendly MP4.
-Detect logo regions, normalize audio and fit H.264 High@3.1 within a decimal size limit.
+Detect corner/edge logos, normalize audio (-14 LUFS) and fit H.264 High@3.1 within <= 98 MiB.
 """
 from __future__ import annotations
 
@@ -40,12 +40,15 @@ LEVEL31_HIGH_MAX_KBPS = 17500    # 14000 kbps x 1.25 (High profile)
 LEVEL31_HIGH_MAX_CPB_KBIT = 17500
 
 # --- Output policy ---
-DEFAULT_MAX_MB = 100.0
+BYTES_PER_MIB = 1024 * 1024
+DEFAULT_MAX_MB = 98.0            # Binary MiB cap (98 MiB = 102,760,448 bytes)
 DEFAULT_LUFS = -14.0             # Golden listening zone for phones & streaming platforms
 TARGET_TRUE_PEAK = -1.5
 TARGET_LRA = 11.0
-MAX_WIDTH = 1280
-MAX_HEIGHT = 720
+MAX_LONG_SIDE = 1280             # Long side <= 1280, short side <= 720 (landscape 1280x720 / portrait 720x1280)
+MAX_SHORT_SIDE = 720
+MAX_WIDTH = MAX_LONG_SIDE
+MAX_HEIGHT = MAX_SHORT_SIDE
 QUALITY_CRF = 14                 # High-quality capped CRF when Level 3.1 itself limits the bitrate
 MIN_BPP = 0.040                  # Bits-per-pixel floor before stepping resolution down
 MIN_VIDEO_KBPS = 1               # x264 accepts target rates in whole kbps
@@ -170,7 +173,7 @@ def _fmt_clock(seconds: float) -> str:
 
 
 def _fmt_mb(num_bytes: float) -> str:
-    return f"{num_bytes / 1_000_000:.1f} MB"
+    return f"{num_bytes / BYTES_PER_MIB:.1f} MiB"
 
 
 def _fmt_fps(fps: Fraction) -> str:
@@ -332,14 +335,21 @@ def _summarize_source(info: VideoInfo) -> str:
 # ============================================================================================
 # Encode Planning (Level 3.1 geometry, frame rate & size budget)
 # ============================================================================================
-def _fit_dimensions(display_w: float, display_h: float, height_cap: int = MAX_HEIGHT) -> tuple[int, int]:
-    """Fit the display aspect into a landscape bounding box, including portrait sources."""
-    width_cap = _even(height_cap * MAX_WIDTH / MAX_HEIGHT)
+def _fit_dimensions(display_w: float, display_h: float, short_cap: int = MAX_SHORT_SIDE) -> tuple[int, int]:
+    """
+    Fit display aspect into orientation-aware bounding box (long side <= 1280, short side <= 720)
+    without stretching 4:3/portrait frames or upscaling smaller sources.
+    """
+    long_cap = _even(short_cap * MAX_LONG_SIDE / MAX_SHORT_SIDE)
+    if display_w >= display_h:
+        w_cap, h_cap = long_cap, short_cap
+    else:
+        w_cap, h_cap = short_cap, long_cap
     # libx264/yuv420p needs even dimensions. Round small, odd frames down to avoid upscaling.
-    max_w = min(width_cap, max(2, int(display_w) // 2 * 2))
-    max_h = min(height_cap, max(2, int(display_h) // 2 * 2))
+    max_w = min(w_cap, max(2, int(display_w) // 2 * 2))
+    max_h = min(h_cap, max(2, int(display_h) // 2 * 2))
     scale = min(max_w / display_w, max_h / display_h)
-    return _even(display_w * scale), _even(display_h * scale)
+    return min(max_w, _even(display_w * scale)), min(max_h, _even(display_h * scale))
 
 
 def _macroblocks(w: int, h: int) -> int:
@@ -360,11 +370,36 @@ def _choose_fps(src_fps: Fraction, w: int, h: int) -> Fraction:
     return fps / max(1, math.ceil(fps / max_fps))
 
 
+_RESOLUTION_RUNGS: tuple[tuple[int, Optional[int]], ...] = (
+    (720, None), (540, None), (480, 30), (360, 30), (240, 24),
+    (180, 20), (144, 15), (90, 8),
+)
+
+
+def _pick_geometry_for_budget(
+    display_w: float,
+    display_h: float,
+    src_fps: Fraction,
+    video_kbps: int,
+) -> tuple[int, int, Fraction]:
+    out_w, out_h = _fit_dimensions(display_w, display_h, MAX_SHORT_SIDE)
+    fps = _choose_fps(src_fps, out_w, out_h)
+    for short_cap, fps_cap in _RESOLUTION_RUNGS:
+        out_w, out_h = _fit_dimensions(display_w, display_h, short_cap)
+        fps = _choose_fps(src_fps, out_w, out_h)
+        if fps_cap and fps > fps_cap:
+            fps /= math.ceil(fps / fps_cap)
+        bpp = video_kbps * 1000 / (out_w * out_h * float(fps))
+        if bpp >= MIN_BPP:
+            break
+    return out_w, out_h, fps
+
+
 def plan_encode(info: VideoInfo, max_mb: float, ffmpeg_caps: set[str]) -> EncodePlan:
-    """Choose resolution, frame rate, audio bitrate and rate-control mode that fit the size budget."""
+    """Choose resolution, frame rate, audio bitrate and rate-control mode that fit the binary MiB budget."""
     if not 1 <= max_mb <= DEFAULT_MAX_MB:
-        raise ValueError("--max-mb must be between 1 and 100.")
-    max_bytes = int(max_mb * 1_000_000)
+        raise ValueError(f"--max-mb must be between 1 and {DEFAULT_MAX_MB:g} (MiB).")
+    max_bytes = int(max_mb * BYTES_PER_MIB)
     # MP4 sample tables grow with duration even for very low-bitrate encodes.
     table_bytes = math.ceil(info.duration * (400 if info.audio_index is not None else 180))
     reserve = max(math.ceil(max_bytes * (1 - SIZE_SAFETY)), table_bytes)
@@ -379,24 +414,14 @@ def plan_encode(info: VideoInfo, max_mb: float, ffmpeg_caps: set[str]) -> Encode
     video_kbps = int(total_kbps - audio_kbps)
     if video_kbps < MIN_VIDEO_KBPS:
         raise ValueError(
-            f"The {max_mb:g} MB budget leaves less than 1 kbps for video after audio and MP4 overhead. "
+            f"The {max_mb:g} MiB budget leaves less than 1 kbps for video after audio and MP4 overhead. "
             "Shorten the input or select a larger size budget."
         )
 
     display_w, display_h = info.display_width, float(info.height)
-    # Preserve source cadence at the top rungs. At small budgets trade pixels
-    # and then frames for a usable amount of data per encoded picture.
-    for height_cap, fps_cap in ((720, None), (540, None), (480, 30), (360, 30), (240, 24),
-                                (180, 20), (144, 15), (90, 8)):
-        out_w, out_h = _fit_dimensions(display_w, display_h, height_cap)
-        fps = _choose_fps(info.fps, out_w, out_h)
-        if fps_cap and fps > fps_cap:
-            fps /= math.ceil(fps / fps_cap)
-        bpp = video_kbps * 1000 / (out_w * out_h * float(fps))
-        if bpp >= MIN_BPP:
-            break
+    out_w, out_h, fps = _pick_geometry_for_budget(display_w, display_h, info.fps, video_kbps)
     if min(out_w, out_h) < min(_fit_dimensions(display_w, display_h)):
-        notes.append(f"Long video: resolution stepped down to {out_w}×{out_h} to stay under {max_mb:g} MB.")
+        notes.append(f"Long video: resolution stepped down to {out_w}×{out_h} to stay within {max_mb:g} MiB.")
 
     if _snap_fps(info.fps) != fps:
         notes.append(f"Frame rate {_fmt_fps(info.fps)} → {_fmt_fps(fps)} fps to fit Level 3.1 and the size budget.")
@@ -464,7 +489,44 @@ def _extract_gray_frame(ffmpeg: str, info: VideoInfo, t: float, aw: int, ah: int
     return np.frombuffer(res.stdout[:need], dtype=np.uint8).reshape(ah, aw)
 
 
-def _median_gradient_map(stack):
+def _extract_gray_frames_stream(
+    ffmpeg: str,
+    info: VideoInfo,
+    target_count: int,
+    aw: int,
+    ah: int,
+    progress_cb: Optional[Callable[[int, int], None]] = None,
+) -> tuple[list, list[float]]:
+    """Fast single-process gray frame sampling for short clips (avoids N cold FFmpeg startups)."""
+    import numpy as np
+
+    sample_fps = max(0.25, target_count / max(0.5, info.duration))
+    cmd = [
+        ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
+        "-i", info.path, "-map", f"0:{info.video_index}",
+        "-vf", f"fps={sample_fps:.6f},scale={aw}:{ah}:flags=area",
+        "-frames:v", str(target_count),
+        "-f", "rawvideo", "-pix_fmt", "gray", "-",
+    ]
+    try:
+        res = _run_capture(cmd, timeout=90)
+    except (subprocess.TimeoutExpired, OSError):
+        return [], []
+    if res.returncode != 0 or not res.stdout:
+        return [], []
+    frame_bytes = aw * ah
+    count = len(res.stdout) // frame_bytes
+    if count <= 0:
+        return [], []
+    buf = np.frombuffer(res.stdout[:count * frame_bytes], dtype=np.uint8).reshape(count, ah, aw)
+    decoded = [buf[i] for i in range(count)]
+    times = [(i + 0.5) / sample_fps for i in range(count)]
+    if progress_cb:
+        progress_cb(target_count, target_count)
+    return decoded, times
+
+
+def _median_gradient_map(stack, vote_ratio: float = 0.85):
     """Visible watermarks keep a constant-sign gradient over changing backgrounds; scenery averages out."""
     import numpy as np
 
@@ -472,10 +534,10 @@ def _median_gradient_map(stack):
 
     def stable_gradient(axis):
         gradients = np.diff(f, axis=axis)
-        # A large median alone frequently picks up texture on a panning camera.
-        votes = np.maximum((gradients > 3).sum(axis=0), (gradients < -3).sum(axis=0))
+        # Require persistent gradient polarity across frames to reject panning texture.
+        votes = np.maximum((gradients > 2).sum(axis=0), (gradients < -2).sum(axis=0))
         median = np.abs(np.median(gradients, axis=0)).astype(np.float32)
-        return np.where(votes >= 0.90 * len(f), median, 0)
+        return np.where(votes >= vote_ratio * len(f), median, 0)
 
     gx = stable_gradient(2)
     gy = stable_gradient(1)
@@ -488,13 +550,14 @@ def _median_gradient_map(stack):
     return m * 0.5
 
 
-def _dilate(mask, r: int):
+def _dilate(mask, rx: int, ry: Optional[int] = None):
     import numpy as np
 
-    k = 2 * r + 1
-    padded = np.pad(mask.astype(np.int32), r)
+    ry = rx if ry is None else ry
+    kx, ky = 2 * rx + 1, 2 * ry + 1
+    padded = np.pad(mask.astype(np.int32), ((ry, ry), (rx, rx)))
     ii = np.pad(padded.cumsum(0).cumsum(1), ((1, 0), (1, 0)))
-    window = ii[k:, k:] - ii[:-k, k:] - ii[k:, :-k] + ii[:-k, :-k]
+    window = ii[ky:, kx:] - ii[:-ky, kx:] - ii[ky:, :-kx] + ii[:-ky, :-kx]
     return window > 0
 
 
@@ -527,8 +590,49 @@ def _label_components(mask) -> list[tuple[int, int, int, int, list[tuple[int, in
     return comps
 
 
+def _merge_nearby_boxes(
+    boxes: list[tuple[int, int, int, int, float]],
+    w: int,
+    h: int,
+) -> list[tuple[int, int, int, int, float]]:
+    """Merge fragmented letters/parts belonging to the same corner/edge watermark."""
+    if len(boxes) <= 1:
+        return boxes
+    gap_x = max(12, int(round(w * 0.045)))
+    gap_y = max(6, int(round(h * 0.03)))
+    merged = list(boxes)
+    changed = True
+    while changed:
+        changed = False
+        out: list[tuple[int, int, int, int, float]] = []
+        used = [False] * len(merged)
+        for i in range(len(merged)):
+            if used[i]:
+                continue
+            x0, y0, x1, y1, score = merged[i]
+            used[i] = True
+            for j in range(i + 1, len(merged)):
+                if used[j]:
+                    continue
+                ax0, ay0, ax1, ay1, ascore = merged[j]
+                dx = max(0, max(x0, ax0) - min(x1, ax1))
+                dy = max(0, max(y0, ay0) - min(y1, ay1))
+                if dx <= gap_x and dy <= gap_y:
+                    nx0, ny0 = min(x0, ax0), min(y0, ay0)
+                    nx1, ny1 = max(x1, ax1), max(y1, ay1)
+                    nbw, nbh = nx1 - nx0 + 1, ny1 - ny0 + 1
+                    if nbw * nbh / float(w * h) <= 0.09 and nbw <= 0.58 * w and nbh <= 0.30 * h:
+                        x0, y0, x1, y1 = nx0, ny0, nx1, ny1
+                        score = max(score, ascore)
+                        used[j] = True
+                        changed = True
+            out.append((x0, y0, x1, y1, score))
+        merged = out
+    return merged
+
+
 def _detect_boxes_in_frames(frames) -> tuple[list[tuple[int, int, int, int, float]], bool]:
-    """Find persistent edge groups backed by evidence of a changing local background."""
+    """Find persistent corner/edge logo groups backed by a changing surrounding background."""
     import numpy as np
 
     moving = np.std(frames, axis=0, dtype=np.float32) > 6
@@ -536,44 +640,47 @@ def _detect_boxes_in_frames(frames) -> tuple[list[tuple[int, int, int, int, floa
         return [], True
     m = _median_gradient_map(frames)
     h, w = m.shape
-    thresh = max(9.0, float(np.percentile(m, 99.5)) * 0.25)
+    # Cap adaptive threshold so one ultra-bright opaque logo never blinds detection of a faint logo.
+    thresh = max(5.8, min(13.5, float(np.percentile(m, 99.5)) * 0.20))
     strong = m > thresh
 
     # Drop long straight lines (letterbox / pillarbox borders, static UI rules).
     strong[strong.mean(axis=1) > 0.35, :] = False
     strong[:, strong.mean(axis=0) > 0.35] = False
 
-    if strong.mean() > 0.12:
+    if strong.mean() > 0.14:
         return [], True
 
-    r = max(2, int(round(min(h, w) / 70)))
-    merged = _dilate(strong, r)
-    boxes = []
+    rx = max(4, int(round(w / 45)))
+    ry = max(2, int(round(h / 75)))
+    merged = _dilate(strong, rx, ry)
+    raw_boxes = []
     for x0, y0, x1, y1, pixels in _label_components(merged):
         bw, bh = x1 - x0 + 1, y1 - y0 + 1
         area_ratio = bw * bh / float(w * h)
-        if not 0.0004 <= area_ratio <= 0.08 or bw > 0.55 * w or bh > 0.30 * h:
+        if not 0.0003 <= area_ratio <= 0.09 or bw > 0.58 * w or bh > 0.30 * h:
             continue
         py = np.fromiter((p[0] for p in pixels), dtype=np.int32, count=len(pixels))
         px = np.fromiter((p[1] for p in pixels), dtype=np.int32, count=len(pixels))
         strong_count = int(strong[py, px].sum())
-        if strong_count < 15 or strong_count / float(bw * bh) < 0.04:
+        if strong_count < 12 or strong_count / float(bw * bh) < 0.03:
             continue
         cx, cy = (x0 + x1) / 2.0 / w, (y0 + y1) / 2.0 / h
-        if not (cx < 0.30 or cx > 0.70 or cy < 0.22 or cy > 0.78):
+        # Keep auto-detection strictly inside corner/edge zones to protect central subjects.
+        if not (cx < 0.32 or cx > 0.68 or cy < 0.24 or cy > 0.76):
             continue
-        # A still corner in a shot with motion elsewhere is ambiguous. Look at a
-        # ring outside the suspected logo so an opaque logo can qualify as well.
+        # Verify the surrounding ring has real scene motion (works for both opaque & translucent logos).
         pad = max(6, bh // 2)
         around = moving[
             max(0, y0 - pad):min(h, y1 + pad + 1),
             max(0, x0 - pad):min(w, x1 + pad + 1),
         ]
         inside = moving[y0:y1 + 1, x0:x1 + 1]
-        if around.sum() - inside.sum() < 0.2 * (around.size - inside.size):
+        ring_area = around.size - inside.size
+        if ring_area <= 0 or (around.sum() - inside.sum()) < 0.20 * ring_area:
             continue
-        boxes.append((x0, y0, x1, y1, float(m[py, px].mean())))
-    return boxes, False
+        raw_boxes.append((x0, y0, x1, y1, float(m[py, px].mean())))
+    return _merge_nearby_boxes(raw_boxes, w, h), False
 
 
 def _box_iou(a, b) -> float:
@@ -585,41 +692,87 @@ def _box_iou(a, b) -> float:
 
 
 def _logo_runs(frames, reference, box, times, duration):
-    """Match signed logo edges per frame to delimit intervals when a corner is occupied."""
+    """Match signed logo edges per frame to delimit intervals when a corner/edge logo is present."""
     import numpy as np
 
     x0, y0, x1, y1 = box[:4]
+    h, w = frames.shape[1:]
     patch = frames[:, y0:y1 + 1, x0:x1 + 1].astype(np.int16)
     dx = np.diff(patch, axis=2).reshape(len(frames), -1)
     dy = np.diff(patch, axis=1).reshape(len(frames), -1)
     gradients = np.concatenate((dx, dy), axis=1)
     ref = gradients[reference]
     median = np.median(ref, axis=0)
-    votes = (ref * np.sign(median) > 3).sum(axis=0)
-    reliable = (np.abs(median) >= 10) & (votes >= 0.9 * len(ref))
-    x_edges = reliable[:dx.shape[1]].sum()
-    y_edges = reliable[dx.shape[1]:].sum()
-    if x_edges < 8 or y_edges < 8 or x_edges + y_edges < 30:
+    votes = (ref * np.sign(median) > 2).sum(axis=0)
+    reliable = (np.abs(median) >= 6.5) & (votes >= 0.85 * len(ref))
+    x_edges = int(reliable[:dx.shape[1]].sum())
+    y_edges = int(reliable[dx.shape[1]:].sum())
+    if x_edges < 4 or y_edges < 4 or x_edges + y_edges < 20:
         return []
-    # A moving object near a still graphic can pass the outer-ring test.
-    # Require the scene to vary at the actual logo contours: the contrast
-    # retains its sign while the luma on at least one side of the edge changes.
-    moving = patch[reference].std(axis=0, dtype=np.float32) > 10
-    changing_sides = np.concatenate(((moving[:, :-1] | moving[:, 1:]).ravel(),
-                                     (moving[:-1, :] | moving[1:, :]).ravel()))
-    if changing_sides[reliable].mean() < 0.5:
+
+    # Accept either:
+    # (A) Translucent watermark: background shines through and varies along logo contours.
+    # (B) Solid opaque logo: surrounding background ring moves significantly while logo interior stays frozen.
+    ref_frames = frames[reference]
+    patch_std = patch[reference].std(axis=0, dtype=np.float32)
+    moving_inside = patch_std > 8.0
+    changing_sides = np.concatenate(
+        ((moving_inside[:, :-1] | moving_inside[:, 1:]).ravel(),
+         (moving_inside[:-1, :] | moving_inside[1:, :]).ravel())
+    )
+    translucent_ok = float(changing_sides[reliable].mean()) >= 0.38
+
+    pad = max(6, (y1 - y0 + 1) // 2)
+    ring_std = ref_frames[
+        :,
+        max(0, y0 - pad):min(h, y1 + pad + 1),
+        max(0, x0 - pad):min(w, x1 + pad + 1),
+    ].std(axis=0, dtype=np.float32)
+    ring_moving = ring_std > 8.0
+    outer_area = ring_moving.size - moving_inside.size
+    outer_motion = float(ring_moving.sum() - moving_inside.sum()) / float(outer_area) if outer_area > 0 else 0.0
+    inside_motion = float(moving_inside.mean()) if moving_inside.size else 1.0
+    opaque_ok = outer_motion >= 0.25 and inside_motion <= outer_motion * 0.78
+
+    if not (translucent_ok or opaque_ok):
         return []
+
     expected = median[reliable]
     aligned = gradients[:, reliable] * np.sign(expected)
-    score = (aligned >= np.maximum(3, 0.27 * np.abs(expected))).mean(axis=1)
-    if np.median(score[reference]) < 0.84:
+    score = (aligned >= np.maximum(2.5, 0.25 * np.abs(expected))).mean(axis=1)
+    if float(np.median(score[reference])) < 0.78:
         return []
-    present = score >= 0.67
+
+    present = score >= 0.58
+    # Bridge brief 1-2 frame washouts (e.g. bright flash crossing a translucent logo).
+    if len(present) >= 3:
+        present[1:-1] |= present[:-2] & present[2:]
+    if len(present) >= 4:
+        for idx in range(1, len(present) - 2):
+            if present[idx - 1] and present[idx + 2]:
+                present[idx] = True
+                present[idx + 1] = True
+
+    if float(present.mean()) >= 0.85:
+        return [(0.0, duration)]
+
     boundaries = [0.0] + [(a + b) / 2 for a, b in zip(times, times[1:])] + [duration]
-    # Ignore isolated hits. A single noisy sample inside a stable run may miss the logo.
-    present[1:-1] |= present[:-2] & present[2:]
     transitions = np.flatnonzero(np.diff(np.r_[False, present, False]))
-    return [(boundaries[a], boundaries[b]) for a, b in transitions.reshape(-1, 2) if b - a >= 3]
+    raw_runs = [(a, b) for a, b in transitions.reshape(-1, 2) if b - a >= 3]
+    if not raw_runs:
+        return []
+
+    # Snap near-edge run endpoints to video boundaries to prevent 1-frame flicker at start/end.
+    snapped: list[tuple[float, float]] = []
+    n_frames = len(present)
+    for a, b in raw_runs:
+        t0 = 0.0 if a <= 1 else boundaries[a]
+        t1 = duration if b >= n_frames - 1 else boundaries[b]
+        if snapped and t0 <= snapped[-1][1]:
+            snapped[-1] = (snapped[-1][0], max(snapped[-1][1], t1))
+        else:
+            snapped.append((t0, t1))
+    return snapped
 
 
 def detect_watermarks(
@@ -627,39 +780,52 @@ def detect_watermarks(
     info: VideoInfo,
     progress_cb: Optional[Callable[[int, int], None]] = None,
 ) -> tuple[list[WatermarkBox], str]:
-    """Sample frames across time windows and locate persistent overlays (incl. mid-video position switches)."""
+    """Sample frames across overlapping windows and locate persistent corner/edge overlays."""
     import numpy as np
 
     aw, ah = _analysis_size(info.width, info.height)
     frame_count = max(1, round(float(info.fps) * info.duration))
-    windows = min(4, max(2, int(info.duration // 3)), max(1, frame_count // 10))
-    per_window = min(16 if windows == 1 else 12, frame_count // windows)
-    span = info.duration / windows
-    jobs: list[tuple[int, float]] = []
-    for wi in range(windows):
-        for j in range(per_window):
-            t = wi * span + (j + 0.5) * span / per_window
-            jobs.append((wi, math.floor(t * float(info.fps)) / float(info.fps)))
+    target_samples = min(48, max(12, int(info.duration * 3)), frame_count)
+    target_samples = max(6, min(target_samples, frame_count))
 
     decoded, times = [], []
-    indices = [[] for _ in range(windows)]
-    with ThreadPoolExecutor(max_workers=min(4, os.cpu_count() or 1)) as pool:
-        futures = [pool.submit(_extract_gray_frame, ffmpeg, info, t, aw, ah) for _, t in jobs]
-        for done, ((wi, t), fut) in enumerate(zip(jobs, futures), 1):
-            frame = fut.result()
-            if frame is not None:
-                indices[wi].append(len(decoded))
-                decoded.append(frame)
-                times.append(t)
-            if progress_cb:
-                progress_cb(done, len(futures))
+    if info.duration <= 45.0 and frame_count <= 2700:
+        decoded, times = _extract_gray_frames_stream(ffmpeg, info, target_samples, aw, ah, progress_cb=progress_cb)
+
+    if len(decoded) < 6:
+        decoded, times = [], []
+        jobs = [
+            math.floor(((i + 0.5) * info.duration / target_samples) * float(info.fps)) / float(info.fps)
+            for i in range(target_samples)
+        ]
+        with ThreadPoolExecutor(max_workers=min(4, os.cpu_count() or 1)) as pool:
+            futures = [pool.submit(_extract_gray_frame, ffmpeg, info, t, aw, ah) for t in jobs]
+            for done, (t, fut) in enumerate(zip(jobs, futures), 1):
+                frame = fut.result()
+                if frame is not None:
+                    decoded.append(frame)
+                    times.append(t)
+                if progress_cb:
+                    progress_cb(done, len(futures))
 
     if len(decoded) < 6:
         return [], "Not enough decodable frames for watermark analysis."
     all_frames = np.stack(decoded)
+    n_dec = len(decoded)
+
+    # Full-video pass + overlapping sliding windows to catch corner-switching watermarks cleanly.
+    groups: list = [slice(None)]
+    win_len = min(10, max(6, n_dec // 4))
+    stride = max(3, win_len // 2)
+    if n_dec > win_len:
+        starts = list(range(0, n_dec - win_len + 1, stride))
+        if starts[-1] != n_dec - win_len:
+            starts.append(n_dec - win_len)
+        for st in starts:
+            groups.append(slice(st, st + win_len))
+
     candidates = []
     static_hits = 0
-    groups = [slice(None)] + [group for group in indices if windows > 1 and len(group) >= 6]
     for group in groups:
         found, static = _detect_boxes_in_frames(all_frames[group])
         static_hits += int(static)
@@ -870,10 +1036,10 @@ def verify_output(ffprobe: str, path: str, max_bytes: int, expect_audio: bool) -
         ("Profile", str(v.get("profile", "?")), v.get("profile") == "High"),
         ("Level", f"{level / 10:.1f}" if level else "?", level == 31),
         ("Pix Fmt", str(v.get("pix_fmt", "?")), v.get("pix_fmt") == "yuv420p"),
-        ("Resolution", f"{w}×{h}", 0 < w <= MAX_WIDTH and 0 < h <= MAX_HEIGHT
+        ("Resolution", f"{w}×{h}", 0 < max(w, h) <= MAX_LONG_SIDE and 0 < min(w, h) <= MAX_SHORT_SIDE
          and v.get("sample_aspect_ratio") == "1:1"),
         ("Cadence", f"{_fmt_fps(fps)} fps", 0 < mb_count <= LEVEL31_MAX_FS
-         and 0 < mb_count * fps <= LEVEL31_MAX_MBPS),
+         and 0 < mb_count * fps <= LEVEL31_MAX_MBPS * Fraction(1001, 1000)),
     ]
     if a is not None:
         checks.append(
@@ -884,7 +1050,7 @@ def verify_output(ffprobe: str, path: str, max_bytes: int, expect_audio: bool) -
     elif expect_audio:
         checks.append(("Audio", "missing", False))
     checks.append(("Faststart", "moov before mdat" if faststart else "moov missing or misplaced", faststart))
-    checks.append(("Size", f"{size:,} bytes (< {max_bytes / 1_000_000:g} MB)", size < max_bytes))
+    checks.append(("Size", f"{size:,} bytes (≤ {max_bytes / BYTES_PER_MIB:g} MiB)", size <= max_bytes))
     return checks
 
 
@@ -898,21 +1064,22 @@ In this Studio, enter the source path, adjust any settings, then choose Optimize
 The MP4 is saved beside the source as <source>_mobile.mp4.
 
 [bold #FF9800]Picture and file size[/]
-The output fits within 1280×720 and keeps the display aspect ratio. It uses H.264
-High Profile, Level 3.1 (avc1), 8-bit yuv420p and a front-loaded MP4 index.
-Short clips use high-quality encoding. Tighter size limits use two-pass encoding
-and may reduce resolution or frame rate. The file must be smaller than the cap.
+The output keeps the display aspect ratio within long side ≤ 1280 and short side ≤ 720
+(landscape ≤ 1280×720, portrait ≤ 720×1280, 4:3 never stretched). It uses H.264 High
+Profile, Level 3.1 (avc1), 8-bit yuv420p, BT.709 color tags, and +faststart moov index.
+Short clips use capped CRF; tighter budgets use two-pass ABR and step down resolution
+or frame rate as needed so the file stays ≤ 98 MiB (binary, 102,760,448 bytes).
 
 [bold #FF9800]Watermarks[/]
-Auto looks for stationary logos and overlays that switch positions across moving
-scenes. FFmpeg fills detected regions from their surroundings. For missed logos,
-supply a rectangle in the displayed source frame with --wm-box X:Y:W:H.
+Auto scans overlapping windows for corner/edge stationary logos (both solid opaque and
+translucent) and position-switching overlays while protecting central subjects. FFmpeg
+delogo fills detected regions cleanly. For missed logos, supply a rectangle in displayed
+source pixels with --wm-box X:Y:W:H.
 
 [bold #FF9800]Audio[/]
-The default target is -14 LUFS integrated with a -1.5 dBTP true-peak target.
-Peak protection may keep sharp percussion quieter. The result shows the measured level.
-Choose -16 LUFS for quieter playback or Off to retain the original levels.
-Audio tracks are exported as AAC-LC stereo at 48 kHz.
+The default target is -14 LUFS integrated with a -1.5 dBTP true-peak target and strict
+post-encode AAC verification. Choose -16 LUFS for quieter playback or Off to keep original
+levels. Audio tracks are exported as AAC-LC stereo at 48 kHz (mp4a).
 
 [bold #FF9800]Examples[/]
 pykuai tt ghv clip.mp4
@@ -965,7 +1132,7 @@ def _build_vid_studio_app(initial_path: str = ""):
     groups = {
         "wm": [("Auto", "auto"), ("Off", "off")],
         "loud": [("-14 LUFS", -14.0), ("-16 LUFS", -16.0), ("Off", None)],
-        "cap": [("100 MB", 100.0), ("50 MB", 50.0), ("25 MB", 25.0)],
+        "cap": [("98 MiB", 98.0), ("50 MiB", 50.0), ("25 MiB", 25.0)],
         "spd": [("Best", "slow"), ("Balanced", "medium"), ("Fast", "veryfast")],
     }
     labels = {"wm": "Watermark", "loud": "Loudness", "cap": "Size cap", "spd": "Speed"}
@@ -998,7 +1165,7 @@ def _build_vid_studio_app(initial_path: str = ""):
                     with Horizontal(classes="compact-tight"):
                         yield Static("Output", classes="field-label")
                         yield Input(placeholder="<source>_mobile.mp4", id="out-input", classes="cyber-slim")
-                    yield Static("H.264 High 3.1 · 8-bit yuv420p · AAC · faststart · ≤1280×720", classes="studio-note")
+                    yield Static("H.264 High@3.1 · yuv420p · AAC · faststart · 720p · ≤98 MiB", classes="studio-note")
 
                 yield Static("", id="form-error", classes="hidden-err", markup=False)
                 with Horizontal(classes="action-bar"):
@@ -1099,7 +1266,7 @@ def _launch_vid_studio(initial_path: str = ""):
 class VidEngine(BaseEngine):
     name = "ghv"
     description = "GitHub Video (FFmpeg + NumPy)"
-    usage = "tt ghv <video> [--max-mb 100] [--lufs -14] [--wm auto|off] [-o out.mp4]"
+    usage = "tt ghv <video> [--max-mb 98] [--lufs -14] [--wm auto|off] [-o out.mp4]"
     drop_extensions = VIDEO_EXTENSIONS
     category = "Media & Video"
     requires = ["numpy>=1.24.0"]
@@ -1108,7 +1275,10 @@ class VidEngine(BaseEngine):
     def register_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("video", nargs="?", default="", help="Source video path (mp4, mov, mkv, avi, webm, flv, ...)")
         parser.add_argument("-o", "--output", help="Output .mp4 path (default: <source>_mobile.mp4)")
-        parser.add_argument("--max-mb", type=float, default=DEFAULT_MAX_MB, help="Size limit from 1 to 100 decimal MB (default: 100)")
+        parser.add_argument(
+            "--max-mb", "--max-mib", dest="max_mb", type=float, default=DEFAULT_MAX_MB,
+            help="Size limit from 1 to 98 binary MiB (default: 98)",
+        )
         parser.add_argument("--wm", choices=("auto", "off"), default="auto", help="Automatic watermark removal (default: auto)")
         parser.add_argument("--wm-box", type=_parse_wm_box, action="append", default=[], metavar="X:Y:W:H",
                             help="Manual watermark rectangle in source pixels; repeatable; overrides auto detection")
@@ -1203,7 +1373,7 @@ class VidEngine(BaseEngine):
         info = probe_video(src, ffprobe)
         plan = plan_encode(info, opts.max_mb, caps)
 
-        max_bytes = int(opts.max_mb * 1_000_000)
+        max_bytes = int(opts.max_mb * BYTES_PER_MIB)
         console.print(f"  [dim]Source:[/dim] {escape(_summarize_source(info))}")
         rc_label = (
             f"capped CRF {QUALITY_CRF} ≤ {plan.maxrate} kbps" if plan.mode == "crf"
@@ -1212,7 +1382,7 @@ class VidEngine(BaseEngine):
         audio_target = f"AAC {plan.audio_kbps} kbps" if plan.audio_kbps else "no audio"
         console.print(
             f"  [dim]Target:[/dim] [bold #00FF00]{plan.out_w}×{plan.out_h}[/bold #00FF00] · {_fmt_fps(plan.fps)} fps · "
-            f"H.264 High@L3.1 · {rc_label} · {audio_target} · < {opts.max_mb:g} MB"
+            f"H.264 High@L3.1 · {rc_label} · {audio_target} · ≤ {opts.max_mb:g} MiB"
         )
         for note in plan.notes:
             console.print(f"  [#FF9800]• {escape(note)}[/#FF9800]")
@@ -1231,10 +1401,14 @@ class VidEngine(BaseEngine):
         # --- 1. Watermarks ---
         boxes: list[WatermarkBox] = []
         if opts.wm_boxes:
+            sar_val = float(info.sar) if info.sar > 0 else 1.0
             for b in opts.wm_boxes:
-                # delogo needs a neighbouring pixel on each side for interpolation.
-                x, y = max(1, b.x), max(1, b.y)
-                w = min(info.width - 1, b.x + b.w) - x
+                # Map displayed-frame X/W into decoded storage pixels when SAR != 1;
+                # delogo also requires a 1 px border on every side for interpolation.
+                sx0 = int(round(b.x / sar_val))
+                sx1 = int(round((b.x + b.w) / sar_val))
+                x, y = max(1, sx0), max(1, b.y)
+                w = min(info.width - 1, sx1) - x
                 h = min(info.height - 1, b.y + b.h) - y
                 if w < 4 or h < 4:
                     raise ValueError(f"Watermark rectangle {b.x}:{b.y}:{b.w}:{b.h} is outside the usable frame.")
@@ -1317,7 +1491,7 @@ class VidEngine(BaseEngine):
                 "-vf", vf, "-c:v", "libx264", "-preset", opts.preset, "-profile:v", "high", "-level:v", "3.1",
                 "-8x8dct", "1", "-pix_fmt", "yuv420p", "-refs", str(plan.refs), "-g", str(plan.gop),
                 "-keyint_min", str(max(1, plan.gop // 2)),
-                "-colorspace", "bt709", "-color_range", "tv",
+                "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
             ]
             if plan.mode == "crf":
                 cmd += ["-crf", str(QUALITY_CRF), "-maxrate", f"{plan.maxrate}k", "-bufsize", f"{plan.bufsize}k"]
@@ -1371,24 +1545,42 @@ class VidEngine(BaseEngine):
                 for p in ([0] if plan.mode == "crf" else [1, 2]):
                     run_ffmpeg(_encode_cmd(p), "Encoding (CRF)" if p == 0 else f"Encoding pass {p}/2")
                 size = os.path.getsize(tmp_out)
-                if size < max_bytes and measured is not None:
+                if size <= max_bytes and measured is not None:
                     output_audio = check_audio(tmp_out, work_dir)
                     size = os.path.getsize(tmp_out)
-                if size < max_bytes:
+                if size <= max_bytes:
                     break
                 if attempt == 2:
-                    raise ValueError(f"The encoded file still reached or exceeded the {opts.max_mb:g} MB limit.")
-                # Subtract the measured excess from the video budget. Audio and mux overhead remain.
+                    raise ValueError(f"The encoded file still exceeded the {opts.max_mb:g} MiB limit.")
+                # Subtract the measured excess from the video budget; also step down geometry/audio if squeezed.
                 excess_kbps = math.ceil((size - max_bytes * 0.95) * 8 / (1000 * info.duration))
                 base_kbps = min(plan.video_kbps, plan.maxrate)
                 new_kbps = max(MIN_VIDEO_KBPS, base_kbps - excess_kbps)
+                if new_kbps >= base_kbps and plan.audio_kbps > 32:
+                    plan.audio_kbps = max(32, plan.audio_kbps // 2)
+                    aac_options = [
+                        "-c:a", "aac", "-profile:a", "aac_low", "-tag:a", "mp4a",
+                        "-b:a", f"{plan.audio_kbps}k", "-ar", "48000", "-ac", "2",
+                    ]
+                    new_kbps = max(MIN_VIDEO_KBPS, base_kbps - 1)
                 if new_kbps >= base_kbps:
                     raise ValueError("The audio and MP4 overhead leave too little room for video.")
-                print_warning(f"Candidate is {size:,} bytes. Retrying at {new_kbps} kbps.")
                 plan.mode = "2pass"
                 plan.video_kbps = new_kbps
                 plan.maxrate = min(plan.video_kbps * 2, LEVEL31_HIGH_MAX_KBPS)
                 plan.bufsize = min(plan.maxrate * 2, LEVEL31_HIGH_MAX_CPB_KBIT)
+                new_w, new_h, new_fps = _pick_geometry_for_budget(
+                    info.display_width, float(info.height), info.fps, plan.video_kbps,
+                )
+                if (new_w, new_h, new_fps) != (plan.out_w, plan.out_h, plan.fps):
+                    plan.out_w, plan.out_h, plan.fps = new_w, new_h, new_fps
+                    plan.refs = max(1, min(4, LEVEL31_MAX_DPB_MBS // _macroblocks(new_w, new_h)))
+                    plan.gop = max(12, int(round(float(new_fps) * 2)))
+                    vf = build_video_filter(info, plan, boxes, opts.show_wm)
+                print_warning(
+                    f"Candidate is {size:,} bytes (> {opts.max_mb:g} MiB). "
+                    f"Retrying at {plan.out_w}×{plan.out_h} {_fmt_fps(plan.fps)} fps, {plan.video_kbps} kbps."
+                )
 
             checks = verify_output(ffprobe, tmp_out, max_bytes, expect_audio=info.audio_index is not None)
             if output_audio is not None:

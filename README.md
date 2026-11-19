@@ -14,7 +14,7 @@ English | [简体中文](README.zh-CN.md)
 * **Zero-Config Micro-Kernel**: Drop any compliant three-letter lowercase `.py` module (`^[a-z]{3}$`) implementing [`BaseEngine`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/base.py) into `pykuai/engines/`. PyKuai automatically discovers it and wires it into the Tool Tray (`tt`), CLI subcommand router, and dependency scanner (`pp`) with zero boilerplate.
 * **Two-Tier Command Ergonomics**:
   * **Doubled 2-letter global commands** (`tt`, `pp`, `xp`, `cc`) plus `help` / `gg` deliver instant muscle-memory navigation across the REPL console.
-  * **3-letter tool engines** (`ifc`, `ytd`, ...) keep every utility isolated behind clean, collision-free namespaces.
+  * **3-letter tool engines** (`ifc`, `ghv`, `ytd`, ...) keep every utility isolated behind clean, collision-free namespaces.
 * **Dual-Mode Execution & In-App Guides**: Run every engine either interactively through mouse-clickable **Rich / Textual** Cyber-Dark Studios (press `?` or `F1`, or click `?` in the top-right corner, for a full in-app feature guide) or headlessly via direct CLI flags in automation scripts.
 * **Virtual CRT XP Playground (`xp`)**: Launches a 3D bedroom-to-PC cutscene into a simulated Windows XP Bliss desktop with `HEX 3D` and a Chromium/Edge CDP-backed **IE 6 Real Browser** supporting live **Sixel HD** true-pixel terminal projection.
 * **Cyber-Dark Tactile Experience**: Features an ASCII banner, an optional high-DPI desktop pixel-snake launch sequence (`--fast` to skip), Windows Terminal title/icon protection, drag-and-drop image routing, and toggleable retro CC0 arcade sound effects persisted in `~/.pykuai/settings.json`.
@@ -34,6 +34,7 @@ flowchart TD
     subgraph S2["2. Studio, Tool Engines & Package Manager"]
         Reg -->|"tt interactive tray / CLI args"| TUI["tui.py & tray.py Cyber-Dark Studio"]
         TUI -->|"Image drop / studio / flags"| IFC["engines/ifc.py Pillow + UnsharpMask"]
+        TUI -->|"Video drop / wm / 98 MiB"| GHV["engines/ghv.py FFmpeg + NumPy H.264"]
         TUI -->|"Stream query / auth / mux"| YTD["engines/ytd.py yt-dlp + FFmpeg"]
         CLI -->|"pp AST & pyproject audit"| Deps["core/deps.py Dependency Manager"]
         YTD -.->|"Cookie lock fallback"| Auth["core/yt_auth.py Isolated Chromium Login"]
@@ -49,6 +50,7 @@ flowchart TD
 
     subgraph S4["4. Outputs & Persistent User State"]
         IFC --> OutFiles["Converted Images & Multi-Layer ICO"]
+        GHV --> OutVideo["Mobile-Ready H.264 MP4 (<= 98 MiB)"]
         YTD --> OutMedia["Merged MP4 / MP3 / Subtitles"]
         Room --> LocalState["~/.pykuai/settings.json & ie6_bookmarks.json"]
         Auth --> Cookies["~/.pykuai/cookies.txt & yt-session"]
@@ -62,7 +64,7 @@ flowchart TD
 | Stage | Data Flow | Core Technologies | What It Does |
 | :--- | :--- | :--- | :--- |
 | **1. CLI & REPL Runtime** | Terminal input → [`cli.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/cli.py) → [`registry.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/registry.py) / [`tray.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tray.py) | `Win32 ReadConsoleInputW`, `SGR Mouse`, `Rich`, regex `^[a-z]{3}$` reflection | Renders the startup pixel-snake intro and ASCII banner, intercepts raw keyboard/mouse/paste events with retro WAV SFX, and routes 2-letter global commands or 3-letter engines dynamically. |
-| **2. Tool Engines & Toolchain** | [`tray.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tray.py) / CLI → [`ifc.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ifc.py) / [`ytd.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ytd.py) / [`deps.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/deps.py) | `Pillow`, `UnsharpMask`, `yt-dlp`, `FFmpeg`, SHA256 verification, isolated Chromium cookies | Converts images and packs multi-layer `.ico` atomically, downloads/muxes media via isolated Chromium session cookies when gated, and resolves/installs FFmpeg and `pyproject.toml` dependencies. |
+| **2. Tool Engines & Toolchain** | [`tray.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/tray.py) / CLI → [`ifc.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ifc.py) / [`ghv.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ghv.py) / [`ytd.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ytd.py) / [`deps.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/deps.py) | `Pillow`, `UnsharpMask`, `NumPy`, `yt-dlp`, `FFmpeg`, SHA256 verification, isolated Chromium cookies | Converts images and packs multi-layer `.ico` atomically, transcodes & cleans corner/edge watermarks into universal `<= 98 MiB` H.264 MP4s with `-14 LUFS` audio verification, downloads/muxes media via isolated Chromium session cookies, and resolves/installs FFmpeg and dependencies. |
 | **3. XP CRT & Virtual Desktop** | [`launcher.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/launcher.py) → [`room3d.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/room3d.py) → [`hex3d.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/hex3d.py) | `Textual`, 2x2 Quadrant Sub-Pixel Canvas, Synthesized E-flat Startup Chime | Plays a 3D bedroom-to-monitor cutscene, boots an interactive Windows XP `Bliss` desktop with Start/Off menu, and runs `HEX 3D` and IE 6 inside the terminal frame. |
 | **4. Native IE 6 & Sixel HD Projection** | [`room3d.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/room3d.py) ↔ [`ie6.py`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/ie6.py) ↔ Local Edge/Chrome ↔ Terminal | `CDP WebSocket` (`Page.startScreencast`), `CSI 16t` / `DA1`, `numpy` `P2=1` Sixel, `\x1b[?2026h` Sync Output, `DECSCUSR` | Streams live viewport frames asynchronously, suppresses idle caret-blink redraws, atomically composites Sixel + UI without black flashes, and anchors the thin-bar IME cursor on clicked webpage coordinates. |
 
@@ -164,13 +166,33 @@ pykuai/
 * **Extension-Free `Login YouTube` (`--login`)**: Windows Chrome/Edge (`127+`) locks its cookie DB (`yt-dlp #7271`) and enforces App-Bound Encryption (`#10927`). Click **`Login YouTube`** in Studio (or run `pykuai tt ytd --login`) to sign in inside an isolated browser profile (`~/.pykuai/yt-session`)—PyKuai captures the authenticated session automatically into `~/.pykuai/cookies.txt` without touching your personal browser or needing third-party extensions. Interactive downloads hitting YouTube's sign-in gate also offer to open this login flow and retry immediately.
 * **Smart Resilience & On-Demand FFmpeg**: Automatically wires `ejs:github` challenge solving when Node/Deno is installed, prefers bundled `yt-dlp.exe` when Python `yt-dlp` lacks `curl_cffi`, auto-detects `cookies.txt` across save/working dirs, `~/.pykuai/cookies.txt`, and `~/Downloads`, and prompts to install SHA256-verified Windows FFmpeg/FFprobe binaries into `~/.pykuai/tools/` (`--install-ffmpeg`) whenever missing.
 
-### 3. `ghv` — GitHub Video
+### 3. `ghv` — GitHub Video & Mobile Universal Optimizer
 
-Drop a local video into the PyKuai prompt and press Enter to use the defaults. To adjust settings, select `ghv` in the Tool Tray, then drop the video into its source field. The result is saved next to the source as `<name>_mobile.mp4`.
+Drop any local video directly into the PyKuai REPL prompt and press Enter to process with defaults, or launch `ghv` inside Tool Tray (`tt`) / CLI to customize options. Outputs are written atomically beside the source as `<name>_mobile.mp4`.
 
-* **Video.** The MP4 fits inside 1280×720 and preserves the display aspect ratio, including portrait and 4:3 footage. It uses H.264 High Profile, Level 3.1 (`avc1`), 8-bit `yuv420p`, and a front-loaded `moov` index for streaming. The encoder adapts to the available bitrate and checks that the file is strictly smaller than 100,000,000 bytes before saving.
-* **Audio.** When the source has audio, the default target is −14 LUFS integrated with a true-peak target of −1.5 dBTP. Audio is saved as 48 kHz AAC-LC stereo (`mp4a`). Silent tracks stay silent.
-* **Watermarks.** Automatic detection looks for fixed or position-switching logos across moving scenes. FFmpeg interpolates the marked area from surrounding pixels. Use `--analyze` to inspect detected regions or `--wm-box X:Y:W:H` to specify a missed logo in source pixels.
+#### Golden Encoding & Compatibility Specification
+
+| Core Metric | Target Configuration | Why It Matters |
+| :--- | :--- | :--- |
+| **Video Codec** | **H.264 / AVC (`avc1`)** | 99.99% global compatibility with native hardware decoding on every mobile & desktop GPU. |
+| **Profile** | **High Profile (`-8x8dct 1`)** | Sharper detail and higher compression efficiency than Baseline without color banding. |
+| **Level** | **Level 3.1** | Strictly enforces ITU-T H.264 Table A-1 limits (`<= 3,600` MB/frame, `<= 108,000` MB/s, `<= 17.5 Mbps`, DPB `<= 18,000` MB) for low-heat playback even on 10-year-old chips. |
+| **Pixel Format** | **8-bit `yuv420p` (BT.709)** | Strictly avoids unplayable 10-bit / 4:2:2 / 4:4:4 streams; HDR (`PQ`/`HLG`) inputs are tone-mapped (Hable) to 8-bit SDR BT.709 with full color tags (`primaries/trc/matrix/tv`). |
+| **Audio Codec & Loudness** | **AAC-LC 48 kHz Stereo (`mp4a`) · `-14 LUFS`** | Universal HTML5 `<video>` audio with default two-pass EBU R128 loudness normalization (`-14 LUFS`, `-1.5 dBTP` true-peak protection) and strict post-encode AAC verification (silent clips remain silent). |
+| **Streaming Flag** | **`+faststart` (`moov` atom first)** | Relocates the MP4 `moov` index ahead of `mdat` (verified via binary atom walk) for instant mobile seek & progressive playback. |
+| **Resolution Strategy** | **Adaptive 720p (Long Side `<= 1280`, Short Side `<= 720`)** | Landscape `16:9` → `1280×720`, Portrait `9:16` → `720×1280` (same 3,600 macroblocks, Level 3.1 compliant), `4:3` → `960×720` with `SAR 1:1`; preserves display aspect ratio cleanly, never stretches 4:3, never upscales smaller sources. |
+| **File Size Cap** | **`<= 98 MiB` (Binary, `102,760,448 B`)** | Default `98 MiB` hard ceiling (selectable `98 / 50 / 25 MiB` in Studio or `--max-mb 1..98`) guaranteed via capped CRF, 2-pass ABR, and automatic geometry/bitrate retry. |
+
+#### Video Processing Pipeline & Capabilities
+
+* **1. Stream Probing & Display Normalization**: Reads rotation metadata (`side_data` / `rotate`) and non-square `SAR` via `ffprobe`, normalizing display geometry and capping cadence cleanly (`60 → 30 fps`, `50 → 25 fps`) whenever required by H.264 Level 3.1.
+* **2. Precision Corner/Edge Watermark Detection & Removal (`--wm auto`)**:
+  * **Fast Adaptive Sampling**: Uses a single streaming FFmpeg gray pipe for clips `<= 45s` and bounded parallel seeks for long videos, analyzing overlapping sliding windows to catch both permanent and corner-switching logos (e.g., TikTok/Douyin-style jumps).
+  * **Solid Opaque + Translucent Coverage**: Detects both opaque solid corner badges (frozen interior backed by moving surrounding ring) and translucent overlays (capped adaptive gradient threshold + anisotropic dilation + proximity box merging to prevent fragmentation or time-axis flicker), while strictly shielding central video subjects from false positives.
+  * **Manual Precision & Preview**: Removes regions via FFmpeg `delogo`, supports `--analyze` (dry-run report), `--show-wm` (green preview boxes), and repeatable `--wm-box X:Y:W:H` overrides in displayed source pixels (auto-mapped across non-1:1 SAR).
+* **3. Loudness Normalization & Strict Verification**: Runs two-pass EBU R128 `loudnorm` (`-14 LUFS` default, `-16 LUFS` or `--no-loudnorm` optional) followed by decoded AAC verification and look-ahead transient limiting / audio-only remux correction if peaks exceed `-1.5 dBTP`.
+* **4. Budget-Driven Encoding & Atomic Publication**: Uses capped CRF (`-crf 14`) on short clips and 2-pass ABR on tighter budgets; if an encode still exceeds the target MiB limit, automatically retries by lowering bitrate and stepping down resolution/fps/audio bitrate before atomically committing via `os.replace`.
+* **5. Mandatory Post-Encode Verification**: Every finished MP4 must pass automated `ffprobe` + binary MP4 atom checks (`avc1`, `High`, `Level 3.1`, `yuv420p`, `SAR 1:1`, Level 3.1 cadence, `AAC-LC mp4a 48 kHz stereo`, `moov` before `mdat`, and `<= 98 MiB`) before replacing the destination file.
 
 ---
 
@@ -195,7 +217,7 @@ Inside the console, use the core commands (`help` prints the table, `gg` quits, 
 | `xp` | **XP Playground** | Launch the 3D cutscene & virtual Windows XP CRT (`HEX 3D` & `IE 6` browser) |
 | `cc` | **Clear Console** | Clear the screen and redraw the Cyber-Dark banner |
 
-> 💡 **Pro Tip**: Dragging or pasting an image file path straight into the REPL prompt automatically opens `ifc` pre-loaded with that image.
+> 💡 **Pro Tip**: Dragging or pasting an image or video file path straight into the REPL prompt automatically opens `ifc` (images) or `ghv` (videos) pre-loaded with that file.
 
 ### 2. Direct CLI Mode
 
@@ -209,9 +231,12 @@ pykuai tt
 pykuai tt ifc logo.png -t webp -q 90
 pykuai tt ifc logo.png -t ico -s 16,32,48,256 -o app.ico
 
-# Prepare a video for sharing, or use a smaller size limit
+# Optimize a local video (H.264 High@L3.1, <= 98 MiB, -14 LUFS, auto corner watermark removal)
 pykuai tt ghv "my clip.mov"
-pykuai tt ghv "my clip.mov" --max-mb 25 --lufs -16 -o preview.mp4
+pykuai tt ghv "my clip.mov" --max-mb 50 --lufs -16 -o preview.mp4
+pykuai tt ghv "my clip.mov" --analyze
+pykuai tt ghv "my clip.mov" --show-wm
+pykuai tt ghv "my clip.mov" --wm-box 20:20:260:90
 
 # YouTube & media download, stream probing, login & FFmpeg setup (ytd)
 pykuai tt ytd "https://www.youtube.com/watch?v=..." -f best
