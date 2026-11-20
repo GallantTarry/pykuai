@@ -71,7 +71,7 @@ def show_help_table():
     table.add_column("Description", style="#E0E0E0")
 
     table.add_row("tt", "Tool Tray")
-    table.add_row("bb", "Build Bench · C terminal")
+    table.add_row("bb", "Build Bench")
     table.add_row("pp", "Pull Packages")
     table.add_row("xp", "XP Playground")
     table.add_row("cc", "Clear Console")
