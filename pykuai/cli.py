@@ -71,6 +71,7 @@ def show_help_table():
     table.add_column("Description", style="#E0E0E0")
 
     table.add_row("tt", "Tool Tray")
+    table.add_row("bb", "Build Bench · C terminal")
     table.add_row("pp", "Pull Packages")
     table.add_row("xp", "XP Playground")
     table.add_row("cc", "Clear Console")
@@ -812,6 +813,18 @@ def run_interactive_console(skip_intro: bool = False):
                 show_help_table()
                 continue
 
+            if cmd_lower.split(maxsplit=1)[0] == "bb":
+                from pykuai.bench import run_bench
+
+                try:
+                    bb_args = [_strip_quotes(t) for t in shlex.split(cmd, posix=(os.name != "nt"))[1:]]
+                except ValueError as exc:
+                    console.print(str(exc), style="red", markup=False)
+                    continue
+                run_bench(console, bb_args)
+                console.print()
+                continue
+
             if cmd_lower == "tt" or cmd_lower.startswith("tt "):
                 try:
                     tt_args = [_strip_quotes(tok) for tok in shlex.split(cmd, posix=(os.name != "nt"))[1:]]
@@ -888,6 +901,12 @@ def run_direct_cli():
             print_banner()
             show_help_table()
             return
+
+        if first_arg == "bb":
+            from pykuai.bench import run_bench
+
+            apply_terminal_identity("pykuai")
+            sys.exit(run_bench(console, sys.argv[2:]))
 
         if first_arg == "tt":
             apply_terminal_identity("pykuai")

@@ -1,6 +1,6 @@
 English | [简体中文](README.zh-CN.md)
 
-# 🐍 PyKuai (v1.2.8) — Open-Source CS & Developer Script Toolbox
+# 🐍 PyKuai (v1.2.9) — Open-Source CS & Developer Script Toolbox
 
 > **An open-source, modular CLI & TUI script toolbox built for Computer Science workflows, developer utilities, and community sharing.**  
 > *"The Lord is my shepherd."* — Author: **TuKuai** ([GallantTarry](https://github.com/GallantTarry))
@@ -13,7 +13,7 @@ English | [简体中文](README.zh-CN.md)
 
 * **Zero-Config Micro-Kernel**: Drop any compliant three-letter lowercase `.py` module (`^[a-z]{3}$`) implementing [`BaseEngine`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/base.py) into `pykuai/engines/`. PyKuai automatically discovers it and wires it into the Tool Tray (`tt`), CLI subcommand router, and dependency scanner (`pp`) with zero boilerplate.
 * **Two-Tier Command Ergonomics**:
-  * **Doubled 2-letter global commands** (`tt`, `pp`, `xp`, `cc`) plus `help` / `gg` deliver instant muscle-memory navigation across the REPL console.
+  * **Doubled 2-letter global commands** (`tt`, `bb`, `pp`, `xp`, `cc`) plus `help` / `gg` deliver instant muscle-memory navigation across the REPL console.
   * **3-letter tool engines** (`ifc`, `ghv`, `ytd`, ...) keep every utility isolated behind clean, collision-free namespaces.
 * **Dual-Mode Execution & In-App Guides**: Run every engine either interactively through mouse-clickable **Rich / Textual** Cyber-Dark Studios (press `?` or `F1`, or click `?` in the top-right corner, for a full in-app feature guide) or headlessly via direct CLI flags in automation scripts.
 * **Virtual CRT XP Playground (`xp`)**: Launches a 3D bedroom-to-PC cutscene into a simulated Windows XP Bliss desktop with `HEX 3D` and a Chromium/Edge CDP-backed **IE 6 Real Browser** supporting live **Sixel HD** true-pixel terminal projection.
@@ -83,9 +83,15 @@ pykuai/
 ├── .gitignore                  # Git ignore rules (caches, builds, heavy binaries & temp outputs)
 ├── .backup_engines/            # Historical archive of 10 pre-refactor scripts (not loaded at runtime)
 └── pykuai/                     # Core Python package
-    ├── __init__.py             # Version (1.2.8) & author metadata
+    ├── __init__.py             # Version (1.2.9) & author metadata
     ├── __main__.py             # python -m pykuai module entrypoint
     ├── cli.py                  # Main dispatcher (interactive REPL & direct CLI modes)
+    ├── bench/                  # Build Bench (bb): same-window C editor, Clang & Windows x64 toolchain
+    │   ├── __init__.py         # bb command dispatcher (interactive shell or headless compile)
+    │   ├── toolchain.py        # Pinned LLVM-MinGW x64 download, SHA256 verify, probe & offline cache
+    │   ├── shell.py            # Native PowerShell C workbench (bb <dir> ❯, edit, gg)
+    │   ├── editor.py           # Textual UTF-8 C editor (Ctrl+S atomic save, Esc return, F1 help)
+    │   └── edit_entry.py       # Child CLI entrypoint invoked by `edit <file.c>` inside bb
     ├── arcade/                 # XP Playground 3D CRT, mini-games & IE 6 real browser
     │   ├── __init__.py         # ArcadeGame plugin registry (~/.pykuai/settings.json scores)
     │   ├── launcher.py         # xp entry launcher & game summary table printer
@@ -129,7 +135,7 @@ pykuai/
 ### Module Breakdown
 
 1. **Root Configuration, CI & Archive**
-   * **[pyproject.toml](https://github.com/GallantTarry/pykuai/blob/main/pyproject.toml)**: Defines package metadata (`1.2.8`, Python `>=3.9`), core dependencies (`rich`, `textual`, `openpyxl`, `Pillow`, `pypdf`, `numpy`), optional extras (`office`, `media`, `cv`, `archive`, `ui`, `all`), package data (`tools/*`, `assets/*`, `assets/sfx/*`), and the `pykuai` console entrypoint.
+   * **[pyproject.toml](https://github.com/GallantTarry/pykuai/blob/main/pyproject.toml)**: Defines package metadata (`1.2.9`, Python `>=3.9`), core dependencies (`rich`, `textual`, `openpyxl`, `Pillow`, `pypdf`, `numpy`), optional extras (`office`, `media`, `cv`, `archive`, `ui`, `all`), package data (`tools/*`, `assets/*`, `assets/sfx/*`), and the `pykuai` console entrypoint.
    * **[.github/workflows/publish.yml](https://github.com/GallantTarry/pykuai/blob/main/.github/workflows/publish.yml)**: Passwordless PyPI Trusted Publishing pipeline (OIDC) triggered on `v*` / `pykuaiv*` tags or manual `workflow_dispatch`.
    * **[.backup_engines/](https://github.com/GallantTarry/pykuai/tree/main/.backup_engines)**: Reference archive of 10 pre-refactor standalone scripts (`archive.py`, `excel_merge.py`, `excel_split.py`, `img_compress.py`, `media_fetch.py`, `office_fixed.py`, `pdf_split.py`, `scanner.py`, `video_compress.py`, `web_sniffer.py`). Never loaded by `registry.py`.
 
@@ -145,9 +151,10 @@ pykuai/
    * **[launcher.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/launcher.py)** & **[hex3d.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/hex3d.py)**: Launches the `xp` experience (`xp`, `xp hex`, `xp help`) and renders the built-in `HEX 3D` game (`hex`) on a 2x2 sub-pixel canvas.
    * **[room3d.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/room3d.py)** & **[ie6.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/ie6.py)**: Renders the 3D cutscene and Windows XP Bliss desktop, runs local Edge/Chrome over CDP (`Page.startScreencast`) with system proxy inheritance and streamlined native IE 6 chrome, projects real-time **Sixel HD** (`P2=1`, `numpy` quantized palette) or TrueColor Half-Block frames inside the CRT, eliminates focus-blur black flashes with atomic `\x1b[?2026h...\x1b[?2026l` compositing, and anchors the visible thin-bar cursor onto clicked webpage coordinates for accurate IME input.
 
-4. **Built-In Engines (`pykuai/engines/`)**
+4. **Built-In Engines (`pykuai/engines/`) & Build Bench (`pykuai/bench/`)**
+   * **[pykuai/bench/](https://github.com/GallantTarry/pykuai/tree/main/pykuai/bench)** (`bb` — *Build Bench*): Same-window Windows x64 C programming workbench (`bb <dir> ❯`, `edit`, `clang`, `.\app.exe`, `gg`) backed by an auto-provisioned, SHA256-verified LLVM-MinGW toolchain cached under `~/.pykuai/tools/bb/`.
    * **[ifc.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ifc.py)** (`ifc` — *Image Format Converter*)
-   * **[ghv.py](pykuai/engines/ghv.py)** (`ghv` — *GitHub Video*)
+   * **[ghv.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ghv.py)** (`ghv` — *GitHub Video*)
    * **[ytd.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ytd.py)** (`ytd` — *YouTube Download*)
 
 ---
@@ -214,12 +221,15 @@ Inside the console, use the core commands (`help` prints the table, `gg` quits, 
 | :--- | :--- | :--- |
 | `tt` | **Tool Tray** | Open the interactive Tool Tray, or run `tt <tool> [args]` |
 | `pp` | **Pull Packages** | Audit and install/upgrade plugin dependencies (`pp --check` / `pp -y` / `pp -U`) |
+| `bb` | **Build Bench** | Same-window C editor, compiler and shell for Windows 10/11 x64. Enter `gg` to return. |
 | `xp` | **XP Playground** | Launch the 3D cutscene & virtual Windows XP CRT (`HEX 3D` & `IE 6` browser) |
 | `cc` | **Clear Console** | Clear the screen and redraw the Cyber-Dark banner |
 
 > 💡 **Pro Tip**: Dragging or pasting an image or video file path straight into the REPL prompt automatically opens `ifc` (images) or `ghv` (videos) pre-loaded with that file.
 
 ### 2. Direct CLI Mode
+
+Start a C session in the current directory with `pykuai bb`. On first use it downloads and verifies the complete pinned LLVM-MinGW toolchain in your user cache. Later sessions can compile offline. Type `edit hello.c`, save with Ctrl+S, and press Esc to return. Run `clang hello.c -o hello.exe`, then `.\hello.exe`. To compile an existing file directly, use `pykuai bb hello.c`.
 
 Run tools headlessly or script them in pipelines without entering the REPL:
 
@@ -298,6 +308,14 @@ class MyToolEngine(BaseEngine):
 ```
 
 Restart `pykuai`—no core edits or manual registration needed. `pdf` appears immediately in `tt`, and `pp` automatically tracks its `requires` packages and imports.
+
+---
+
+## ✨ What's New in v1.2.9
+
+* **Build Bench (`bb`) — Same-Window C Workbench for Windows x64 ([`pykuai/bench/`](https://github.com/GallantTarry/pykuai/tree/main/pykuai/bench))**: Type `bb` from the PyKuai prompt (or `pykuai bb` / `pykuai bb hello.c [-o app.exe]`) to switch the current terminal into a green `bb <dir> ❯` C programming workbench. Features an in-window UTF-8 Textual editor (`edit hello.c`, `Ctrl+S` atomic save, `Esc` return with unsaved guard, `F1` / `?` help modal), real `clang` compilation and interactive `scanf` execution (`gg` inside a running C program goes straight to the program; `gg` at `bb ❯` returns to `pykuai ❯`).
+* **Zero-Visual-Studio Pinned LLVM-MinGW Provisioning**: On first entry to `bb`, PyKuai automatically downloads pinned `llvm-mingw-20261117-ucrt-x86_64.zip` with live progress, verifies exact byte length + SHA256 digest + zip entry safety, compiles and runs a real C `stdio.h` self-test, and atomically publishes it into `~/.pykuai/tools/bb/` for instant offline compilation afterwards.
+* **GitHub Video (`ghv`) Precision Upgrade**: Standardized binary `<= 98 MiB` cap (`98 / 50 / 25 MiB` chips, `--max-mb 1..98`), orientation-aware adaptive 720p (`<= 1280×720` landscape / `<= 720×1280` portrait / never stretching 4:3), complete BT.709 color tags, strict `-14 LUFS` verification, and upgraded corner/edge watermark detection covering solid opaque badges, translucent overlays, and corner-switching logos with SAR-aware `--wm-box` mapping.
 
 ---
 

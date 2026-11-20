@@ -492,9 +492,10 @@ def _build_console_greeting() -> tuple[Text, Text]:
         (" just slithered into your console!", "#E0E0E0"),
     )
     line2 = Text.assemble(
-        ("Type ", "#9ca3af"),
+        ("bb", "bold #00FF00"),
+        (" Build Bench (C)  ·  ", "#9ca3af"),
         ("help", "bold #00FF00"),
-        (" for commands — or ", "#9ca3af"),
+        (" for commands  ·  ", "#9ca3af"),
         ("gg", "bold #FF5252"),
         (" to quit.", "#9ca3af"),
     )

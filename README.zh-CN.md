@@ -1,6 +1,6 @@
 [English](README.md) | 简体中文
 
-# 🐍 PyKuai (v1.2.8) — 面向计算机专业的开源脚本工具箱
+# 🐍 PyKuai (v1.2.9) — 面向计算机专业的开源脚本工具箱
 
 > **开源、模块化的 Python CLI / TUI 脚本工具箱——让实用开发者脚本开箱即用、共享互通**  
 > *"The Lord is my shepherd."* — Author: **TuKuai** ([GallantTarry](https://github.com/GallantTarry))
@@ -13,7 +13,7 @@
 
 * **零配置微内核架构**：在 `pykuai/engines/` 中放入任意符合三位纯小写字母命名规范（`^[a-z]{3}$`）并继承 [`BaseEngine`](https://github.com/GallantTarry/pykuai/blob/main/pykuai/core/base.py) 的 `.py` 模块，PyKuai 即可零样板代码自动扫描识别，并自动接入工具托盘（`tt`）、CLI 子命令路由与依赖检测（`pp`）。
 * **双层指令人体工学**：
-  * **两位叠字全局指令**（`tt`、`pp`、`xp`、`cc`）配合 `help` / `gg`：形成极快的肌肉记忆终端导航。
+  * **两位叠字全局指令**（`tt`、`bb`、`pp`、`xp`、`cc`）配合 `help` / `gg`：形成极快的肌肉记忆终端导航。
   * **三位字母工具引擎**（`ifc`、`ghv`、`ytd` 等）：为每款工具提供清晰、互不冲突的独立命名空间。
 * **交互与静默双模式并行 + 内置使用手册**：所有工具既可通过鼠标可点击的 **Rich / Textual** 赛博暗黑交互面板运行（按 `?` 或 `F1`，或点击右上角 `?` 即可弹出完整的英文功能详解弹窗），也可直接在 Shell 与自动化脚本中传参直调。
 * **虚拟 CRT Windows XP 游乐场（`xp`）**：从 3D 卧室潜行开机过场直达虚拟 Windows XP Bliss 桌面，内置 `HEX 3D` 与基于本地 Edge/Chrome CDP 驱动的**原生 IE 6 真实浏览器**（支持终端内 **Sixel HD** 真像素实时投影）。
@@ -83,9 +83,15 @@ pykuai/
 ├── .gitignore                  # Git 忽略规则（缓存、构建产物、大体积二进制与临时输出）
 ├── .backup_engines/            # 早期重构前保留的 10 个历史参考脚本（运行时不会加载）
 └── pykuai/                     # 核心 Python 包目录
-    ├── __init__.py             # 版本号（1.2.8）与作者元信息
+    ├── __init__.py             # 版本号（1.2.9）与作者元信息
     ├── __main__.py             # python -m pykuai 模块化启动入口
     ├── cli.py                  # 主控制台调度器（REPL 交互循环与 CLI 直达分支）
+    ├── bench/                  # Build Bench（bb）：Windows x64 同窗口 C 编程台与工具链管理
+    │   ├── __init__.py         # bb 指令分发器（进入 C 编程台或无头直接编译 .c -> .exe）
+    │   ├── toolchain.py        # 固定版本 LLVM-MinGW x64 下载、SHA256 校验、编译自检与离线缓存
+    │   ├── shell.py            # 原生 PowerShell C 编程会话（bb <dir> ❯、edit、gg）
+    │   ├── editor.py           # Textual UTF-8 C 代码编辑器（Ctrl+S 原子保存、Esc 返回、F1 帮助）
+    │   └── edit_entry.py       # 供编程台 `edit <file.c>` 调用的子进程入口
     ├── arcade/                 # XP Playground 3D CRT、怀旧游戏与内置 IE 6 真实浏览器
     │   ├── __init__.py         # ArcadeGame 游乐场小游戏插件注册表与最高分存储
     │   ├── launcher.py         # xp 入口启动器与游乐场摘要表格输出
@@ -129,7 +135,7 @@ pykuai/
 ### 各板块详细职责
 
 1. **根目录配置、发布流水线与历史归档**
-   * **[pyproject.toml](https://github.com/GallantTarry/pykuai/blob/main/pyproject.toml)**：定义项目名称、版本号（`1.2.8`）、Python 版本要求（`>=3.9`）、核心依赖（`rich`、`textual`、`openpyxl`、`Pillow`、`pypdf`、`numpy`）、可选分组（`office` / `media` / `cv` / `archive` / `ui` / `all`）、打包静态资源（`tools/*`、`assets/*`、`assets/sfx/*`）及全局命令行入口 `pykuai`。
+   * **[pyproject.toml](https://github.com/GallantTarry/pykuai/blob/main/pyproject.toml)**：定义项目名称、版本号（`1.2.9`）、Python 版本要求（`>=3.9`）、核心依赖（`rich`、`textual`、`openpyxl`、`Pillow`、`pypdf`、`numpy`）、可选分组（`office` / `media` / `cv` / `archive` / `ui` / `all`）、打包静态资源（`tools/*`、`assets/*`、`assets/sfx/*`）及全局命令行入口 `pykuai`。
    * **[.github/workflows/publish.yml](https://github.com/GallantTarry/pykuai/blob/main/.github/workflows/publish.yml)**：基于 GitHub OIDC 的无密钥 PyPI Trusted Publishing 自动构建与发布流水线，推送 `v*` / `pykuaiv*` 标签或手动触发 `workflow_dispatch` 即可发布。
    * **[.backup_engines/](https://github.com/GallantTarry/pykuai/tree/main/.backup_engines)**：存放重构前留存的 10 个独立参考脚本（`archive.py`、`excel_merge.py`、`excel_split.py`、`img_compress.py`、`media_fetch.py`、`office_fixed.py`、`pdf_split.py`、`scanner.py`、`video_compress.py`、`web_sniffer.py`），仅作归档参考，不会被 `registry.py` 自动加载。
 
@@ -145,7 +151,8 @@ pykuai/
    * **[launcher.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/launcher.py)** 与 **[hex3d.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/hex3d.py)**：提供 `xp` / `xp hex` / `xp help` 启动入口，并用 2x2 四象限亚像素渲染内置怀旧游戏 `HEX 3D`（`hex`）。
    * **[room3d.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/room3d.py)** 与 **[ie6.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/arcade/ie6.py)**：渲染 3D 开机过场与 Windows XP Bliss 桌面，通过本地 Edge/Chrome CDP（`Page.startScreencast`）与系统代理继承驱动原生样式 IE 6，在支持 Sixel 的终端里输出实时真像素画面（`P2=1`、`numpy` 调色板量化）并自动兼容 24-bit 半字符降级；借助 `\x1b[?2026h...\x1b[?2026l` 原子合成输出与动态网页光标定位修复画面闪黑及中文输入法候选框偏移问题。
 
-4. **内置工具引擎层（`pykuai/engines/`）**
+4. **内置工具引擎层（`pykuai/engines/`）与 C 编程台（`pykuai/bench/`）**
+   * **[pykuai/bench/](https://github.com/GallantTarry/pykuai/tree/main/pykuai/bench)**（`bb` — *Build Bench*）：Windows 10/11 x64 同窗口 C 编程台（`bb <dir> ❯`、`edit`、`clang`、`.\app.exe`、`gg`），首次自动下载并经 SHA256 校验与真实编译自检后缓存于 `~/.pykuai/tools/bb/`。
    * **[ifc.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ifc.py)**（`ifc` — *Image Format Converter*）
    * **[ghv.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ghv.py)**（`ghv` — *GitHub Video*）
    * **[ytd.py](https://github.com/GallantTarry/pykuai/blob/main/pykuai/engines/ytd.py)**（`ytd` — *YouTube Download*）
@@ -214,12 +221,15 @@ pykuai --fast
 | :--- | :--- | :--- |
 | `tt` | **Tool Tray** | 打开可视化工具托盘，或运行 `tt <tool> [args]` |
 | `pp` | **Pull Packages** | 检查并可视化安装/升级插件依赖（`pp --check` / `pp -y` / `pp -U`） |
+| `bb` | **Build Bench** | Windows 10/11 x64 的同窗口 C 编程台，输入 `gg` 返回。 |
 | `xp` | **XP Playground** | 启动 3D 过场动画与虚拟 Windows XP CRT（内置 `HEX 3D` 与 `IE 6` 浏览器） |
 | `cc` | **Clear Console** | 清屏并重绘 Cyber-Dark 欢迎横幅与全局状态栏 |
 
 > 💡 **效率技巧**：在控制台提示符处直接拖入或粘贴图片或视频文件路径，会自动唤醒 `ifc`（图片）或 `ghv`（视频）并预填好该文件路径。
 
 ### 2. 直接命令行模式（CLI）
+
+在源码目录运行 `pykuai bb` 即可进入 C 编程台。首次使用会自动下载完整 LLVM-MinGW 工具链，校验后放入用户缓存，后续可离线使用。输入 `edit hello.c` 编辑，Ctrl+S 保存，Esc 返回；输入 `clang hello.c -o hello.exe` 编译，再输入 `.\hello.exe` 运行。也可以在系统终端输入 `pykuai bb hello.c` 直接编译已有文件。
 
 适合终端直调或自动化脚本编排，执行完毕即返回对应退出码：
 
@@ -298,6 +308,14 @@ class MyToolEngine(BaseEngine):
 ```
 
 保存后无需修改任何核心文件，重启 `pykuai` 即可在 `tt` 中看到 `pdf`，同时 `pp` 会自动读取 `requires` 与导入模块进行依赖管理。
+
+---
+
+## ✨ v1.2.9 版本主要更新
+
+* **同窗口 C 编程台 `bb`（Build Bench，[`pykuai/bench/`](https://github.com/GallantTarry/pykuai/tree/main/pykuai/bench)）**：在 PyKuai 主页输入 `bb`（或在命令行执行 `pykuai bb` / `pykuai bb hello.c [-o app.exe]`），原窗口直接切换为黑底绿字的 `bb <当前目录> ❯` C 编程模式。内置同窗口 UTF-8 编辑器（`edit hello.c`，支持 `Ctrl+S` 原子保存、`Esc` 返回并防未保存丢失、`F1` / `?` 帮助指南），支持真实 `clang` 编译与原地 `scanf` 交互输入（程序运行期输入 `gg` 会原样交给 C 程序，仅在 `bb ❯` 提示符后输入 `gg` 才返回 `pykuai ❯`）。
+* **免装 Visual Studio 的 LLVM-MinGW x64 自动整套配置**：首次进入 `bb` 时在原窗口带进度条下载固定版本 `llvm-mingw-20261117-ucrt-x86_64.zip`，完整校验字节数、SHA256 与压缩包路径安全，解压后现场编译并运行 `stdio.h` 测试程序验证通过后，原子落盘缓存到 `~/.pykuai/tools/bb/`，后续离线即开即用。
+* **视频优化引擎 `ghv` 全面升级**：体积上限统一为二进制 `≤ 98 MiB`（面板提供 `98 / 50 / 25 MiB`，CLI 支持 `--max-mb 1..98`）、分辨率升级为横竖自适应 720P（长边 `≤ 1280`、短边 `≤ 720`，竖屏保 `720×1280`、4:3 绝不拉伸）、补全 BT.709 色彩元数据、保留 `-14 LUFS` 响度归一化与强校验，并修复四角/边缘自动查水印对实心台标、淡色半透明碎块、跳角水印与非 1:1 SAR 手动框选的精度问题。
 
 ---
 
